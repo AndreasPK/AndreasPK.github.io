@@ -25,9 +25,9 @@ Alluding to the fact that we not only store the value but also a closure in whic
 
 # Closures and laziness
 
-It's reasonable to ask one why would we not just store an Int value directly in memory instead of dealing with the overhead of
+It's reasonable to ask oneself why we can't store an `Int` value directly in memory instead of dealing with the overhead of
 allocating a closure to store it in? Part of the reason is the same reason languages like Java or C# do it. Because it allows
-us to do automatic memory management.
+automatic memory management.
 
 However laziness is one more reason for this representation. Since Haskell is [lazy](https://wiki.haskell.org/Lazy_evaluation) closures can also represent **unevaluated** values,
 generally called thunks.
