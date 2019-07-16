@@ -1,5 +1,5 @@
 ---
-title: 2020-02-24 GHC Internals - Pointer Tagging
+title: 2020-02-24 GHC Internals - Dynamic Pointer Tagging
 tags: GHC, CodeGen, Optimization
 ---
 
@@ -18,30 +18,33 @@ First we need to cover some background.
 In GHC these objects share a [common layout in memory](https://gitlab.haskell.org/ghc/ghc/wikis/commentary/rts/storage/heap-objects) which we call their
 *closure*. 
 The same layout is also used for [static objects](https://gitlab.haskell.org/ghc/ghc/wikis/commentary/rts/storage/heap-objects#static-objects) which are generated
-at compile time and stored in the produced object file.
+at compile time and stored in the final executable file.
 
-When we deal with actual values we call these *boxed values*, alluding to the fact that they come with a box (their closure) in which we store them.
-
-Having a common layout is especially practical for GC as it allows to runtime to reuse a lot of code when dealing with this objects.
-Which not only makes the code simpler but also more performant.
+In general Haskell values are represented as *boxed values*.
+Alluding to the fact that we not only store the value but also a closure in which the actual value is contained.
 
 # Closures and laziness
 
-Since Haskell is [lazy](https://wiki.haskell.org/Lazy_evaluation) closures can also represent **unevaluated** values (thunks).
+It's reasonable to ask one why would we not just store an Int value directly in memory instead of dealing with the overhead of
+allocating a closure to store it in? Part of the reason is the same reason languages like Java or C# do it. Because it allows
+us to do automatic memory management.
+
+However laziness is one more reason for this representation. Since Haskell is [lazy](https://wiki.haskell.org/Lazy_evaluation) closures can also represent **unevaluated** values,
+generally called thunks.
 
 Depending on which camp you are in this might be haskells greatest strength or weakness. No matter where you stand on this issue
-one fact is that it has a major impact on how GHC generates code.
+one fact is that it has a major impact on the code GHC generates.
 
 ## Overheads of lazy evaluation
 
-In strict languages when passing arguments or returning results we either use a value directly (in a register or on the stack) 
-or we might pass a pointer to the actual value.
+In strict languages when passing arguments or returning results we either receive a value directly in a register or on the stack
+like it is the case in `C`. Or we might implicitly pass a pointer to an object containing the value like Java does when we have objects as arguments.
 
-However in Haskell we often deal with *boxed and lifted* types. These are not passed or returned directly, rather we 
-use a pointer to a **closure** to represent the value.
+However in Haskell since any argument with a lifted type like Bool could represent a suspended computation we can't choose
+how to pass the argument, instead arguments *have* to be wrapped in a closure and the closure is passed as argument under the hood.
 
 This may sound expensive, however GHC can often determine that code does not require us
-to be lazy. This allows GHC to play pretend and act like a strict language for parts of the code.
+to be lazy. This allows GHC to play pretend and act like a strict language for parts of the code, avoiding the need to construct a closure completely.
 This happens through the demand analyzer and optimizations like *worker/wrapper transformation* and *Constructed Product Result Analysis*.
 
 However for the rest of this post we will focus on cases where these optimizations won't make a difference.
@@ -120,40 +123,43 @@ evaluated is also the right thing to do.
 
 And in fact this corresponds very closely to what GHC did in the past.
 
-I won't go into the pros and cons of laziness here, but the point is that the ability
-to pass lazy values comes with a small overhead.
+In this case the overhead of having a potentially lazy argument is quite significant.
+GHC has a lot of tricks to avoid situations like this but some overhead will remain.
 
-# Reducing the overhead with pointer tagging
+# Reducing the overhead with dynamic pointer tagging
 
 We can reduce that overhead by taking advantage of an important invariant in GHC's runtime.  
 **GHC aligns all objects in the heap to the machine word size.**
 
-Why is this important?
+This allows GHC to use *pointer tagging* to reduce the overhead further.
 
 ## What is pointer tagging
 
-Enter [tagged pointers](https://en.wikipedia.org/wiki/Tagged_pointer).
 
 Since all heap objects are aligned to WORD boundries all pointers to heap objects point
-to addresses which are multiples of 4 (or 8 on 64bit systems).
+to addresses which are multiples of 4 (or 8 on 64bit systems).  
+Aligning objects on the word boundry means all pointers will look like "...00" with the last few bits always being zero.
 
 For example we might place two 8-byte sized objects in memory like this:  
 ![](/images/Alignment1.png "Alignment example")
 
-Aligning objects on the word boundry means all pointers will look like ".....00" with the last few bits always being zero.
+Since these bits are always zero when we create the object, and are always expected to be zero
+when we use the pointer to access the object, we are free to set them to arbitrary values in between.  
+GHC uses this fact to store information in those bits, which just works as long as we make sure to reset them
+to zero before using the pointer to access objects.
 
-This means we are free to store information in those bits as long as we make sure to zero them
-before dereferencing the pointer. Which is exactly what GHC does!
-
-Inside GHC this is refered to as the tag of the pointer, with the bits we are free to set
-called the tag bits.  
+Using irrelevant parts of a pointer like this is called *pointer tagging* in GHC. But the
+concept is [not exclusive to GHC](https://en.wikipedia.org/wiki/Tagged_pointer).
 
 ## Making use of tagged pointers.
 
-Functions get tagged with their arity but we won't cover the details here.  
-For data types GHC always stores if an object is already evaluated `(tag != 0)`.
-If we have enough tag bits for a certain data type we even store what constructor
-the value is built with.  
+Having available 2-3 bits of storage isn't a lot, but still a lot more than zero.
+
+GHC uses this to store information about the object a pointer points to.  
+If the target is a function it is tagged with the arity.
+
+For data types GHC stores if an object is already evaluated `(tag != 0)`.
+If we have enough tag bits we can even store the type of constructor a pointer points at.
 
 Building on this we could generate code taking advantage of this which corresponds
 something like this in pseudo C++:
@@ -162,14 +168,15 @@ something like this in pseudo C++:
 
 Bool* not(Bool* x) {
   //Deal with unevaluated arguments.
-  int tag = x & 0x3;
-  if(tag == 0)
+  int tag = x & 0x3; //Extract tag of the object.
+  if(tag == 0) //Check if object already evaluated.
   {
     x = x->evaluate();
   }
 
   //Perform the actual work.
-  if (x & 0x3 == 1) { // x == True
+  if (x & 0x3 == 1) { // Use the tag to infer 
+                      // what constructor we are dealing with.
     return new Bool(false);
   } else {
     return new Bool(true);
@@ -177,10 +184,14 @@ Bool* not(Bool* x) {
 }
 ```
 
-We can compare this to the Cmm code GHC actual produces by passing -ddump-cmm and compiling the example above.
+This is quite close to actual code generated by GHC. 
+
+We can compare this to the Cmm code GHC produces by passing -ddump-cmm and compiling the example above.
 Below is the code output for these interested. I did rename some of the labels and added comments to 
 make it easier to follow.  
-Ignoring the verbosity added by things like gotos and explicit stack handling it's very similar.
+GHC's intermediate representation also uses gotos instead of nice if/else branches and the stack management is explicit.
+But the actual logic is the same.
+
 
 ```
      {offset
@@ -225,7 +236,7 @@ This is important because memory access can take (comperativly) very long and po
 get away without ever touching x in memory if it's already evaluated and we don't need to access it's fields.
 
 To better understand just **how** much better this is consider the following snippet,
-which lists all the instructions executed if we assume the argument was already evaluated and False:
+which lists all the instructions executed for our not function if we assume the argument was already evaluated and False:
 
 ```asm
 foo_info:
