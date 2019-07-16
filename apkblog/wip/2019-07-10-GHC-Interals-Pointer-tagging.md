@@ -32,7 +32,7 @@ us to do automatic memory management.
 However laziness is one more reason for this representation. Since Haskell is [lazy](https://wiki.haskell.org/Lazy_evaluation) closures can also represent **unevaluated** values,
 generally called thunks.
 
-Depending on which camp you are in this might be haskells greatest strength or weakness. No matter where you stand on this issue
+Depending on which camp you are in this might be Haskell's greatest strength or weakness. No matter where you stand on this issue
 one fact is that it has a major impact on the code GHC generates.
 
 ## Overheads of lazy evaluation
@@ -136,9 +136,9 @@ This allows GHC to use *pointer tagging* to reduce the overhead further.
 ## What is pointer tagging
 
 
-Since all heap objects are aligned to WORD boundries all pointers to heap objects point
+Since all heap objects are aligned to WORD boundaries all pointers to heap objects point
 to addresses which are multiples of 4 (or 8 on 64bit systems).  
-Aligning objects on the word boundry means all pointers will look like "...00" with the last few bits always being zero.
+Aligning objects on the word boundary means all pointers will look like "...00" with the last few bits always being zero.
 
 For example we might place two 8-byte sized objects in memory like this:  
 ![](/images/Alignment1.png "Alignment example")
@@ -232,7 +232,7 @@ But the actual logic is the same.
 ## How good is it?
 
 If you look closely you might notice that we never dereferenced the argument if it was already evaluated!
-This is important because memory access can take (comperativly) very long and pointer tagging allows us to
+This is important because memory access can take (comparatively) very long and pointer tagging allows us to
 get away without ever touching x in memory if it's already evaluated and we don't need to access it's fields.
 
 To better understand just **how** much better this is consider the following snippet,
@@ -260,7 +260,7 @@ _c1bE:
         jmp *(%rbp)
 ```
 
-Let's handwave a lot and be **very** pesimistic.   
+Let's hand wave a lot and be **very** pessimistic.   
 We assume the CPU needs one cycle for each of these instructions.
 Then we round up and say the whole thing will take 15 cycles to run.
 
@@ -268,5 +268,6 @@ Meanwhile if we need to fetch `x` from eg L3 cache (not even memory!) it can tak
 But at this point all we did was load `x` and we haven't even done the actual work!
 
 The actual impact will vary a lot depending on the used soft/hardware.
-But in practice back when pointer tagging was first introduced the runtimes decreased by 12-14% depending on the hardware used. So it comes with quite a large benefit.
+But in practice back when pointer tagging was first introduced the average runtime decreased by 12-14% depending on the hardware used.
+So it has quite an substantial impact on the performance of Haskell programs.
 
