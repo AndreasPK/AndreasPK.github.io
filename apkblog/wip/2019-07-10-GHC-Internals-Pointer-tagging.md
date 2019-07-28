@@ -308,6 +308,6 @@ Together these two aspects improve cache hit rates significantly, and with that
 runtime performance.
 
 This works very well, however sometimes leaves us with a small overhead in
-cases where we know (parts of) an argument will be evaluated. Reducing this
+cases where we know (parts of) an argument will be in WHNF already. Reducing this
 overhead is part of my summer project with Well-Typed and will be the topic
 of another post.
