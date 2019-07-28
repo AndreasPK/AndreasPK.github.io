@@ -6,7 +6,7 @@ tags: GHC, CodeGen, Optimization
 # This post will go over the what and why of pointer tagging
 
 This summer I (Andreas Klebinger) am working for Well-Typed on improving GHC, focusing on runtime performance.  
-On of the topics I am looking at is pointer tagging. In preparation of another post describing
+One of the topics I am looking at is pointer tagging. In preparation of another post describing
 my work this post gives a rough overview of the current implementation.
 
 Note: There is also a proper paper describing the implementation SPJ: [Faster Laziness Using Dynamic Pointer Tagging](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/10/ptr-tagging.pdf)  
