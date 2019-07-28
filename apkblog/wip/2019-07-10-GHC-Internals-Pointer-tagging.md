@@ -165,8 +165,29 @@ Since all heap objects are aligned to word boundaries all pointers to heap objec
 to addresses which are multiples of 8 on 64bit systems.  
 Aligning objects on the word boundary then means all pointers will look like "...000" with the last three bits always being zero.
 
-For example we might place two 8-byte sized objects in memory like this:  
-![](/images/Alignment1.png "Alignment example")
+For example we might place two 8-byte sized objects in memory like this:
+
+```
+             ╔════╗ Word boundary 
+0x1000 +---> ║0x00║ <- Start of first object            
+             ║0x00║             
+             ║0x00║             
+             ║0x00║             
+             ║0x00║             
+             ║0x00║             
+             ║0x00║             
+             ║0x00║ <- End of first object 
+             ╠════╣ Word boundary  
+0x1008 +---> ║0xFF║ <- Start of second object             
+             ║0xFF║             
+             ║0xFF║             
+             ║0xFF║             
+             ║0xFF║             
+             ║0xFF║             
+             ║0xFF║             
+             ║0xFF║ <- End of second object
+             ╚════╜ Word boundary  
+```
 
 The last three bits in any pointer to a heap object are always expected to be zero when we access the object.  
 This means we are free to store information in these bits when passing the pointer around.
