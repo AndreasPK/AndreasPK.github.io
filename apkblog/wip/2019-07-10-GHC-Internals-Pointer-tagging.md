@@ -26,7 +26,7 @@ The same layout is also used for [static objects](https://gitlab.haskell.org/ghc
 at compile time and stored in the final executable file instead of the heap.
 
 In general values stored as heap objects are called boxed values, since we do not only store the value itself in the heap
-but also bookkeeping information - it's **box** if you will.
+but also bookkeeping information - its **box** if you will.
 
 Since static objects are no different than heap objects as far as pointer tagging is concerned
 we will refer to both as heap objects for the remainder of this post.
