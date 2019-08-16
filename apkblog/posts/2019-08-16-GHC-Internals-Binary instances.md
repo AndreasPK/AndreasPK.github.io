@@ -3,12 +3,16 @@ title: GHC Internals - Binary instances, Interface files and number encodings.
 tags: Haskell, GHC, optimizations.
 ---
 
-GHC uses it's own Binary class for a hand full of reasons.
-These in turn are used to serialize various values
-This class and it's instances are used to write out `.hi` (interface) files.
+This is a post about how I reduced the size of interface files by
+about 20% with one easy trick.
 
-`.hi` files in turn are read for each imported Module.
-They expose information about already compiled modules
+## Interface files & Binary
+
+GHC uses it's own Binary class to serialize values for a hand full of reasons.
+The instances of the class in turn are used to write out `.hi` (interface) files.
+
+`.hi` files are read for each imported Module.
+They expose information about already compiled modules to GHC
 like definitions for inlining or calling conventions.
 
 Since each compiled Module results in at least one such a file there are plenty
