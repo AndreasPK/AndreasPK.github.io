@@ -7,34 +7,40 @@ GHC uses it's own Binary class for a hand full of reasons.
 These in turn are used to serialize various values
 This class and it's instances are used to write out `.hi` (interface) files.
 
-They are used to share information about already compiled modules
-eg function definitions for inlining.
+`.hi` files in turn are read for each imported Module.
+They expose information about already compiled modules
+like definitions for inlining or calling conventions.
 
-I recently [changed](https://gitlab.haskell.org/ghc/ghc/merge_requests/1536) the implementation for the Integer instance which
-up to then encoded large integers as UTF32-Strings.
+Since each compiled Module results in at least one such a file there are plenty
+of them to go around. While looking at parts of their implementation recently
+I noticed that the Integer encoding was questionable.  
+So I [changed](https://gitlab.haskell.org/ghc/ghc/merge_requests/1536) the implementation
+away from UTF32-Strings to something more sensible.  
+Instead now we store the number of bytes, followed by the actual bytes which is a decent improvement.
 
-As a follow up I looked at implementing something similar for Int[64/32/16] using [LEB128](https://en.wikipedia.org/wiki/LEB128).
+As a follow up I looked at implementing something [similar](https://gitlab.haskell.org/ghc/ghc/merge_requests/1577) for Int[64/32/16] using [LEB128](https://en.wikipedia.org/wiki/LEB128).
 
 ## What is LEB128
 
 It's a variable length encoding for numbers.  
-This means if our number will fit in 7 bits, we use at most a byte.
+This means if our number will fit in 7 bits, we use at most a byte in our data stream.
 
 The basic principle is that in each byte:
-* We use 7 bits for data.
-* One bit to inform as if we need to read more data.
+* We use 7 bits for data
+* One mark bit indicating if we need to read more data
 
 While 1/8th overhead might seem like a lot in practice most numbers,
 even for Int64, are small values. In fact zero is the most common number.
 
-So while the worst case is worse (10 bytes for Int64) on average save a lot
-of space. Saving 7 bytes for any value fitting into 7 bits.
+So while the worst case is worse (10 bytes for Int64) on average we
+save a lot of space. For small values we save a whole 7 out of 8 bytes!
 
 ## The implementation
 
 There are two versions of LEB128, signed and unsigned.  
 These are straight forward translations from the algorithm given on wikipedia,
-and are not yet very optimized.
+and are not yet very optimized, although the code below seems to be reasonably
+efficient.
 
 ### Unsigned
 
@@ -61,10 +67,10 @@ putULEB128 bh w =
 
 We write out values in little endian order. Starting with the least significant bits.
 
-If we have a value <= 127 we can just write the last byte and are done.
+If we have a value <= 127 we can just write the least significant byte and are done.
 
 Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have
-written an additional byte, shift our value right by 7 bits and repeat.
+to consume additional data, shift our initial value right by 7 bits and repeat.
 
 Reading works similarly.
 
@@ -89,7 +95,7 @@ We read a byte, combine it with what we have read already
 and check the mark bit if we need to read more bytes.
 
 The only noteworthy thing here is that we are using a little endian encoding
-so we have to shift bits read later farther to the right. Which we can do by
+so we have to shift bits read later farther to the left. Which we can do by
 keeping track of the current shift offset - `shift` in the code above.
 
 ### Signed values
@@ -123,8 +129,9 @@ We still write out numbers 7 bits a piece, but our termination condition is diff
 
 The reason is how negative numbers are [encoded](https://en.wikipedia.org/wiki/Two%27s_complement).
 
-The main things to keep in mind here are that:  
-* Shifting a negative value to the right will never become zero because
+The main things to keep in mind here are that:
+
+* Shifting a negative value to the right will never cause them to become zero because
 of sign extension, so we can't just check for zero. You can convince yourself that this is true with `unsafeShiftR (-1) n` for any n.
 * The highest data bit in our encoded data stream will tell the reader the sign of the read value. It will be set for negative numbers and unset otherwise.
 * Further there is no negative zero, this means the highest negative number possible is -1 (unlike with floats).
@@ -132,7 +139,8 @@ of sign extension, so we can't just check for zero. You can convince yourself th
 We can stop writing bytes only if a reader can reconstruct both the value and the sign.
 
 This means the highest data bit (`signBit`) written must match the sign of the value,
-and there are no more data bits to be written. Which is what we compute for `done`.
+and there are no more data bits to be written. We check for these conditions and assign
+the value to `done`.
 
 Reading again the same in reverse.
 
@@ -211,16 +219,14 @@ make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build
 make: *** [Makefile:128: all] Error 2
 ```
 
-`Ix{Int}.index: Index (2291798952) out of range ((0,827))` is a typical error when a Binary instance
+This is a typical error when a Binary instance
 does not agree on the number of bytes read/written in get/put.
-
-### Limiting scope
 
 After a lot of recompilations warming up my room I eventually noticed that
 using the new encoding works, except when I use it for the Word32 instance.
 
-So I simply removed the instance and let GHC tell me where it was used.
-
+So I simply removed the instance and let GHC tell me all the places
+where it was used.
 
 ### The culprit
 
@@ -266,7 +272,8 @@ For example we might get:
 
     -- Position here might be (in variable length encoding) [0xFF, 0x01]
     dict_p <- tellBin bh
-    -- Will write two bytes, but only one byte was reserved above.
+    -- Will write two bytes into the reserved space,
+    -- but only one byte was reserved above.
     putAt bh dict_p_p dict_p
 ```
 
@@ -274,7 +281,7 @@ So I simple changed the `Bin` (stream position) instance to write a fixed number
 
 ## Results
 
-The end result of this is that we save about 18% in interface file size.
+The end result of this is that we save about 20% in interface file size.
 
 Before:  
 ```

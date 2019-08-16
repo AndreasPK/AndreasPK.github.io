@@ -30,18 +30,20 @@
 </div>
 
 <p>GHC uses it’s own Binary class for a hand full of reasons. These in turn are used to serialize various values This class and it’s instances are used to write out <code>.hi</code> (interface) files.</p>
-<p>They are used to share information about already compiled modules eg function definitions for inlining.</p>
-<p>I recently <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1536">changed</a> the implementation for the Integer instance which up to then encoded large integers as UTF32-Strings.</p>
-<p>As a follow up I looked at implementing something similar for Int[64/32/16] using <a href="https://en.wikipedia.org/wiki/LEB128">LEB128</a>.</p>
+<p><code>.hi</code> files in turn are read for each imported Module. They expose information about already compiled modules like definitions for inlining or calling conventions.</p>
+<p>Since each compiled Module results in at least one such a file there are plenty of them to go around. While looking at parts of their implementation recently I noticed that the Integer encoding was questionable.<br />
+So I <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1536">changed</a> the implementation away from UTF32-Strings to something more sensible.<br />
+Instead now we store the number of bytes, followed by the actual bytes which is a decent improvement.</p>
+<p>As a follow up I looked at implementing something <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1577">similar</a> for Int[64/32/16] using <a href="https://en.wikipedia.org/wiki/LEB128">LEB128</a>.</p>
 <h2 id="what-is-leb128">What is LEB128</h2>
 <p>It’s a variable length encoding for numbers.<br />
-This means if our number will fit in 7 bits, we use at most a byte.</p>
-<p>The basic principle is that in each byte: * We use 7 bits for data. * One bit to inform as if we need to read more data.</p>
+This means if our number will fit in 7 bits, we use at most a byte in our data stream.</p>
+<p>The basic principle is that in each byte: * We use 7 bits for data * One mark bit indicating if we need to read more data</p>
 <p>While 1/8th overhead might seem like a lot in practice most numbers, even for Int64, are small values. In fact zero is the most common number.</p>
-<p>So while the worst case is worse (10 bytes for Int64) on average save a lot of space. Saving 7 bytes for any value fitting into 7 bits.</p>
+<p>So while the worst case is worse (10 bytes for Int64) on average we save a lot of space. For small values we save a whole 7 out of 8 bytes!</p>
 <h2 id="the-implementation">The implementation</h2>
 <p>There are two versions of LEB128, signed and unsigned.<br />
-These are straight forward translations from the algorithm given on wikipedia, and are not yet very optimized.</p>
+These are straight forward translations from the algorithm given on wikipedia, and are not yet very optimized, although the code below seems to be reasonably efficient.</p>
 <h3 id="unsigned">Unsigned</h3>
 <p>The unsigned one is rather straight forward:</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">putULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
@@ -61,8 +63,8 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb1-15" title="15">        putByte bh byte</a>
 <a class="sourceLine" id="cb1-16" title="16">        go (w <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span>)</a></code></pre></div>
 <p>We write out values in little endian order. Starting with the least significant bits.</p>
-<p>If we have a value &lt;= 127 we can just write the last byte and are done.</p>
-<p>Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have written an additional byte, shift our value right by 7 bits and repeat.</p>
+<p>If we have a value &lt;= 127 we can just write the least significant byte and are done.</p>
+<p>Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have to consume additional data, shift our initial value right by 7 bits and repeat.</p>
 <p>Reading works similarly.</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="ot">getULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
 <a class="sourceLine" id="cb2-2" title="2">getULEB128 bh <span class="ot">=</span></a>
@@ -79,7 +81,7 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb2-13" title="13">            <span class="kw">else</span></a>
 <a class="sourceLine" id="cb2-14" title="14">                <span class="fu">return</span> <span class="op">$!</span> val</a></code></pre></div>
 <p>We read a byte, combine it with what we have read already and check the mark bit if we need to read more bytes.</p>
-<p>The only noteworthy thing here is that we are using a little endian encoding so we have to shift bits read later farther to the right. Which we can do by keeping track of the current shift offset - <code>shift</code> in the code above.</p>
+<p>The only noteworthy thing here is that we are using a little endian encoding so we have to shift bits read later farther to the left. Which we can do by keeping track of the current shift offset - <code>shift</code> in the code above.</p>
 <h3 id="signed-values">Signed values</h3>
 <p>Signed values are slightly tricker because of sign extension.</p>
 <div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1"><span class="co">-- Signed numbers</span></a>
@@ -104,10 +106,14 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb3-20" title="20">        unless done <span class="op">$</span> go val'</a></code></pre></div>
 <p>We still write out numbers 7 bits a piece, but our termination condition is different.</p>
 <p>The reason is how negative numbers are <a href="https://en.wikipedia.org/wiki/Two%27s_complement">encoded</a>.</p>
-<p>The main things to keep in mind here are that:<br />
-* Shifting a negative value to the right will never become zero because of sign extension, so we can’t just check for zero. You can convince yourself that this is true with <code>unsafeShiftR (-1) n</code> for any n. * The highest data bit in our encoded data stream will tell the reader the sign of the read value. It will be set for negative numbers and unset otherwise. * Further there is no negative zero, this means the highest negative number possible is -1 (unlike with floats).</p>
+<p>The main things to keep in mind here are that:</p>
+<ul>
+<li>Shifting a negative value to the right will never cause them to become zero because of sign extension, so we can’t just check for zero. You can convince yourself that this is true with <code>unsafeShiftR (-1) n</code> for any n.</li>
+<li>The highest data bit in our encoded data stream will tell the reader the sign of the read value. It will be set for negative numbers and unset otherwise.</li>
+<li>Further there is no negative zero, this means the highest negative number possible is -1 (unlike with floats).</li>
+</ul>
 <p>We can stop writing bytes only if a reader can reconstruct both the value and the sign.</p>
-<p>This means the highest data bit (<code>signBit</code>) written must match the sign of the value, and there are no more data bits to be written. Which is what we compute for <code>done</code>.</p>
+<p>This means the highest data bit (<code>signBit</code>) written must match the sign of the value, and there are no more data bits to be written. We check for these conditions and assign the value to <code>done</code>.</p>
 <p>Reading again the same in reverse.</p>
 <div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1"><span class="ot">getSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
 <a class="sourceLine" id="cb4-2" title="2">getSLEB128 bh <span class="ot">=</span> <span class="kw">do</span></a>
@@ -167,10 +173,9 @@ Please report this as a GHC bug:  https://www.haskell.org/ghc/reportabug
 make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/IntWord64.o] Error 1
 make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/Prim/Ext.o] Error 1
 make: *** [Makefile:128: all] Error 2</code></pre>
-<p><code>Ix{Int}.index: Index (2291798952) out of range ((0,827))</code> is a typical error when a Binary instance does not agree on the number of bytes read/written in get/put.</p>
-<h3 id="limiting-scope">Limiting scope</h3>
+<p>This is a typical error when a Binary instance does not agree on the number of bytes read/written in get/put.</p>
 <p>After a lot of recompilations warming up my room I eventually noticed that using the new encoding works, except when I use it for the Word32 instance.</p>
-<p>So I simply removed the instance and let GHC tell me where it was used.</p>
+<p>So I simply removed the instance and let GHC tell me all the places where it was used.</p>
 <h3 id="the-culprit">The culprit</h3>
 <p>Given that roundtripping worked I suspected early on that some usage of the instance relies on it’s encoded size. And indeed while tracking down instance usages eventually I found this use case:</p>
 <div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1"><span class="ot">putWithUserData ::</span> <span class="dt">Binary</span> a <span class="ot">=&gt;</span> (<span class="dt">SDoc</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()) <span class="ot">-&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
@@ -203,11 +208,12 @@ make: *** [Makefile:128: all] Error 2</code></pre>
 <a class="sourceLine" id="cb8-10" title="10"></a>
 <a class="sourceLine" id="cb8-11" title="11">    <span class="co">-- Position here might be (in variable length encoding) [0xFF, 0x01]</span></a>
 <a class="sourceLine" id="cb8-12" title="12">    dict_p <span class="ot">&lt;-</span> tellBin bh</a>
-<a class="sourceLine" id="cb8-13" title="13">    <span class="co">-- Will write two bytes, but only one byte was reserved above.</span></a>
-<a class="sourceLine" id="cb8-14" title="14">    putAt bh dict_p_p dict_p</a></code></pre></div>
+<a class="sourceLine" id="cb8-13" title="13">    <span class="co">-- Will write two bytes into the reserved space,</span></a>
+<a class="sourceLine" id="cb8-14" title="14">    <span class="co">-- but only one byte was reserved above.</span></a>
+<a class="sourceLine" id="cb8-15" title="15">    putAt bh dict_p_p dict_p</a></code></pre></div>
 <p>So I simple changed the <code>Bin</code> (stream position) instance to write a fixed number of bytes and things worked out.</p>
 <h2 id="results">Results</h2>
-<p>The end result of this is that we save about 18% in interface file size.</p>
+<p>The end result of this is that we save about 20% in interface file size.</p>
 <p>Before:</p>
 <pre><code>Andi@Horzube MINGW64 /e/ghc_head
 $ ls nofib/spectral/simple/Main.hi -l
