@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 import           Data.Monoid (mappend)
 import           Hakyll
+import           Text.Pandoc.Options
+import           Data.Default
 
 
 --------------------------------------------------------------------------------
@@ -31,7 +33,7 @@ main = hakyll $ do
 
     match "posts/*" $ do
         route $ setExtension "html"
-        compile $ pandocCompiler
+        compile $ pandocCompilerPosts
             >>= loadAndApplyTemplate "templates/post.html"    postCtx
             >>= loadAndApplyTemplate "templates/default.html" postCtx
             >>= relativizeUrls
@@ -66,6 +68,12 @@ main = hakyll $ do
                 >>= relativizeUrls
 
     match "templates/*" $ compile templateCompiler
+
+pandocCompilerPosts :: Compiler (Item String)
+pandocCompilerPosts =
+    pandocCompilerWith
+        defaultHakyllReaderOptions
+        defaultHakyllWriterOptions
 
 
 --------------------------------------------------------------------------------
