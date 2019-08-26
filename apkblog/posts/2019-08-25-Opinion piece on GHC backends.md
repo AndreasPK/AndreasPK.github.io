@@ -30,7 +30,7 @@ It's used if you want to bootstrap GHC to a new platform and similar scenarios b
 This is the default backend.
 
 * It's a part of GHC itself
-* It's written in Hasekll
+* It's written in Haskell
 
 ### The LLVM backend
 
