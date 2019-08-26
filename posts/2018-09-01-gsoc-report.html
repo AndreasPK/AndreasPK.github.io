@@ -107,7 +107,25 @@
 <p>Finally I was able to benchmark the actual performance. Which was <strong>worse</strong> initially. However after experimentation it became clear that this was mostly a matter of adjusting how we assign weights. With results improving ever since.</p>
 <p>I initially only used nofib for benchmarks which has it’s own drawbacks.</p>
 <p>Over time I incorporated various library benchmark suits into my approach. Which in hindsight was important as these showcased both benefits and drawbacks which where not obvious looking only at nofib result.</p>
-<p>However benchmarking in general took a lot of work and time. Unexpected issues where: * Benchmarks straight up being broken - some of the issues are listed below: * Nofib - Some benchmarks did not use the given compiler flags - Fixed during SoC * Nofib - Most of the benchmarks did not actually contribute to the reported runtime difference - Fixed during SoC * Vector - Various issues - Submitted a PR * Aeson - Broken dependency - Local workaround * text - benchmark not building on windows * Issues with tooling. I’ve run into a few issues with cabal new-build in particular. These invalidated some results so a good bit of time was spent reporting these issues and finding workarounds. * Computing time required - Getting a meaningful performance comparison took a lot of compute time. Especially since it was unclear which approach to assigning edge weights gives the best results. The longest ones are listed below. * nofib - &gt;10 Hours. * containers - 4 Hours * text - 7 hours * Benchmarks being broken when using a unreleased GHC version.</p>
+<p>However benchmarking in general took a lot of work and time. Unexpected issues where:</p>
+<ul>
+<li>Benchmarks straight up being broken - some of the issues are listed below:
+<ul>
+<li>Nofib - Some benchmarks did not use the given compiler flags - Fixed during SoC</li>
+<li>Nofib - Most of the benchmarks did not actually contribute to the reported runtime difference - Fixed during SoC</li>
+<li>Vector - Various issues - Submitted a PR</li>
+<li>Aeson - Broken dependency - Local workaround</li>
+<li>text - benchmark not building on windows</li>
+</ul></li>
+<li>Issues with tooling. I’ve run into a few issues with cabal new-build in particular. These invalidated some results so a good bit of time was spent reporting these issues and finding workarounds.</li>
+<li>Computing time required - Getting a meaningful performance comparison took a lot of compute time. Especially since it was unclear which approach to assigning edge weights gives the best results. The longest ones are listed below.
+<ul>
+<li>nofib - &gt;10 Hours.</li>
+<li>containers - 4 Hours</li>
+<li>text - 7 hours</li>
+</ul></li>
+<li>Benchmarks being broken when using a unreleased GHC version.</li>
+</ul>
 <p>I ended up writing a lot of scripts (bash/R) in order to compare the results of benchmarks. They are available <a href="https://github.com/AndreasPK/bench_hc_libs">here</a> but are better used as a source of inspiration. As they rely a lot on hardcoded paths/flags and the like.</p>
 <h2 id="cmov-support---unfinished">CMOV Support - Unfinished</h2>
 <p>Convert certain code patterns to branchless instructions. There is a working prototype on <a href="https://phabricator.haskell.org/D4832">Phab</a>.</p>

@@ -77,6 +77,7 @@ which where not obvious looking only at nofib result.
 
 However benchmarking in general took a lot of work and time.
 Unexpected issues where:
+
 * Benchmarks straight up being broken - some of the issues are listed below:
     * Nofib - Some benchmarks did not use the given compiler flags - Fixed during SoC
     * Nofib - Most of the benchmarks did not actually contribute to the reported runtime difference - Fixed during SoC
