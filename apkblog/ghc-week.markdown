@@ -147,10 +147,10 @@ organisation before the event.
 
 ## Timetable for the event
  
-by 31st October - Inform us of intent to attend the event
-by 7th November - Potential participants receive notification of acceptance or rejection.
-by 31st November - 70€ deposit due from participants to confirm attendance
-by 14th December - Attendee list published
-by 28th Feb - Complete final pre-event questionnaire 
+* by 31st October - Inform us of intent to attend the event
+* by 7th November - Potential participants receive notification of acceptance or rejection.
+* by 31st November - 70€ deposit due from participants to confirm attendance
+* by 14th December - Attendee list published
+* by 28th Feb - Complete final pre-event questionnaire 
 
 
