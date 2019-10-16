@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <title>Andreas Klebingers Blog - GHC Week</title>
+        <link rel="stylesheet" type="text/css" href="./css/default.css" />
+        <link rel="stylesheet" type="text/css" href="./css/custom.css" />
+        <link rel="stylesheet" type="text/css" href="./css/syntax.css" />
+
+    </head>
+    <body>
+        <header id="header">
+            <hgroup id="logo">
+                <a href="./index.html">Andreas Klebingers Blog</a>
+            </hgroup>
+            <nav id="navigation">
+                <a href="./index.html">Home</a>
+                <a href="./about.html">About</a>
+                <a href="./work.html">Work with me</a>
+                <a href="./contact.html">Contact</a>
+                <a href="./archive.html">Archive</a>
+            </nav>
+        </header>
+
+
+        <div id="content">
+            <h1>GHC Week</h1>
+
+            <p>Sponsored by <a href="https://www.haskell.org/">haskell.org</a> and <a href="http://www.well-typed.com/">Well-Typed</a>.</p>
+<hr />
+<p>I’m excited to announce GHC Week.</p>
+<h2 id="what-is-ghc-week">What is GHC Week</h2>
+<p>GHC Week is a week long gathering of GHC developers and people who want to become one.</p>
+<p>We will get together in a large cottage to learn from each other about GHC development and related topics. Hopefully improving both GHC and our knowledge about it in the process.</p>
+<h2 id="quick-facts">Quick facts</h2>
+<table>
+<thead>
+<tr class="header">
+<th>Question</th>
+<th style="text-align: left;">Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>When</td>
+<td style="text-align: left;">March 13th - 20th 2020</td>
+</tr>
+<tr class="even">
+<td>Where</td>
+<td style="text-align: left;">Annevoie, Belgium</td>
+</tr>
+<tr class="odd">
+<td>What</td>
+<td style="text-align: left;">Learn about and work on GHC together</td>
+</tr>
+<tr class="even">
+<td>How to join</td>
+<td style="text-align: left;">See below for details</td>
+</tr>
+<tr class="odd">
+<td>Costs?</td>
+<td style="text-align: left;">70€ deposit for accomodation + food/drink/… expenses</td>
+</tr>
+<tr class="even">
+<td>Tagline</td>
+<td style="text-align: left;">A conference without talks</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-is-the-deal">What is the deal</h2>
+<p>For the last few years <a href="https://mpickering.github.io/">mpickering</a> has organised a shared house<br />
+where some GHC developers stay together during <a href="https://icfp20.sigplan.org/">ICFP</a>. Colloquially called GHC house.</p>
+<p>This has historically been a fairly productive environment, however, productivity has still been limited by the necessity of giving and attending talks!</p>
+<p>We now strive to recreate this environment without the distraction of talks. A week whose sole purpose is to focus on GHC and things that relate to it, like segfaults and gitlab issues.</p>
+<p>If you want to do a deep dive into GHC this is the perfect opportunity!</p>
+<p>There will likely be someone there to collaborate on most parts of GHC. Like mpickering on TH and profiling. Myself for backend performance or bgamari on things related to GHC’s infrastructure just to name a few.</p>
+<h2 id="is-this-the-right-event-for-me">Is this the right event for me?</h2>
+<p>The event is aimed at anyone willing to take a week out of there life to focus on GHC related things together with others.</p>
+<p>If you want to work on GHC or improve/use GHC internals this event is for you. Knowledge about GHC internals is <strong>not</strong> a prerequisite.</p>
+<h3 id="call-for-students">Call for students</h3>
+<p>We especially want to encourage students, undergraduate or otherwise, who are interested in working on GHC to attend GHC Week. This is an exceptional opportunity to learn about GHC from experienced developers.</p>
+<p>We have some funds available to help those in need with travel and accommodation costs. This is possible thanks to our sponsors Haskell.org and <a href="http://www.well-typed.com/">Well-Typed</a></p>
+<p>So don’t hesitate to reach out.</p>
+<h3 id="what-do-you-expect-from-me">What do you expect from me?</h3>
+<p>We expect participants to be self motivated above all. We have no invited speakers, no talks, no scheduled tutorials so it’s completely up to you to make the most of this opportunity.</p>
+<p>For this reason we expect you to come with a goal in mind.</p>
+<p>Be that implementing a feature, studying a part of GHC’s implementation or writing a plugin. You might plan for X and end up doing Y in the end. And that’s perfectly fine. But you need to have a rough idea about what you want to do during the week beforehand.</p>
+<h3 id="this-is-not-a-regular-haskell-hackathon">This is <em>not</em> a regular haskell hackathon</h3>
+<p>The focus of this week will be on GHC. This does not mean you can only work on GHC itself. But goals for the week must relate to GHC in a meaningful way.</p>
+<p>To give a few contrived and very opinionated examples for good/bad project ideas:</p>
+<p>Bad:</p>
+<ul>
+<li>Writing a ray tracer in haskell.</li>
+<li>Write a web app using haskell.</li>
+<li>Learn haskell from the beginning.</li>
+</ul>
+<p>Good Goals:</p>
+<ul>
+<li>Writing a 3D visualization of the haskell heap.</li>
+<li>Writing a plugin that replaces every occurrence of <code>undefined</code> with <code>(error "I'm a bad person")</code>.</li>
+<li>Work on an alternative Haskell compiler.</li>
+<li>Working on tools which use the GHC API.</li>
+<li>Set out to improve a error messages for a certain pattern that always annoyed you.</li>
+<li>Set out to understand the implementation of feature X.</li>
+</ul>
+<p>All of these projects are cool ideas, but only the latter ones are a good fit for this event.</p>
+<h2 id="costs">Costs</h2>
+<p>There will be an upfront deposit of 70€.</p>
+<h3 id="what-is-included-in-the-deposit">What is included in the deposit</h3>
+<p>The deposit will be used to pay for accommodation and a few shared commodities. We hope to be able to refund parts of the deposit depending on actual cost but this can only be determined after the event.</p>
+<h3 id="expected-other-costs">Expected other costs</h3>
+<p>We will organize some food and drinks, the costs for which will be collected either on site or after the event. Further we will make sure that people have the opportunity to go grocery shopping and there are a few restaurants in walking distance.</p>
+<h2 id="accommodation">Accommodation</h2>
+<p>We will stay in Annevoie, Belgium in a renovated old mill. Judging by the pictures it is a lovely place. Hopefully there’s also decent wifi.</p>
+<p>It has a nice open living area for collaboration and relaxation. Containing both couches as well as large tables.</p>
+<p>The downside is that we have more beds than rooms. So expect to share a room with others.</p>
+<p>Otherwise there are multiple bathrooms and a large kitchen as well to tend to personal needs.</p>
+<h2 id="location">Location</h2>
+<p>We meet in Annevoie, Belgium which is about 2 hours from Brussels via public transport.</p>
+<p>We will put up more information about how to get there/back and related information once we get closer to the actual event.</p>
+<h2 id="i-want-to-participate">I want to participate!</h2>
+<p>If you want to participate (and why wouldn’t you) please email <a href="https://mpickering.github.io/">mpickering</a> with your request. Don’t forget to include the following information in your request:</p>
+<ul>
+<li>Your (real) name</li>
+<li>Reason for wanting to attend. (1-10 Sentences)</li>
+<li>Any additional information the organisers should know about</li>
+</ul>
+<p>Sadly space is limited so we can’t <em>guarantee</em> a spot for everyone.</p>
+<p>However the avenue has a large number of beds so we are optimistic to accommodate most people who want to participate.</p>
+<h2 id="timetable-for-the-event">Timetable for the event</h2>
+<p>by 31st October - Inform us of intent to attend the event by 7th November - Potential participants receive notification of acceptance or rejection. by 31st November - 70€ deposit due from participants to confirm attendance by 14th December - Attendee list published by 28th Feb - Complete final pre-event questionnaire</p>
+        </div>
+        <div id="footer">
+        </div>
+        <div style="display: none">If you found this and we meet tell me. I will buy you a drink.</div>
+    </body>
+</html>
