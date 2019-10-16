@@ -89,21 +89,22 @@ and the fact that GHC uses two stacks.
 
 LLVM does not support tables next to code well despite being discussed as far back as [7 years ago](http://lists.llvm.org/pipermail/llvm-dev/2012-February/047555.html).  
 The reason for this is the combination of GHC not being an important user of LLVM, and few GHC devs being interested in writing patches for LLVM.  
-So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) just so we can have tables next to code.  
+So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) so that we can among other things
+place data needed by the gc inline next to the code (Tables next to code).
 This is bad for all kinds of reasons.
 
 Somewhat related is the fact that GHC uses two stacks, one being heap allocated. Which is also something LLVM was not designed for
 and a result llvm does "struggle" with the resulting code.
 
 The last point of friction comes in the form of compile time. Some of this is lack of optimization for the llvm
-backend on GHC's side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the
+backend on GHCs side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the
 shared Cmm pipeline. Some of it is just llvm doing so much more work.
 
 That being said it's not clear to what degree this is unavoidable because of the nature of Haskell code.
 And to what degree this could be solved with redesigns for parts of GHC.
 
 But from my perspective even just figuring out if LLVM is a suitable long term solution requires a
-large upfront investment of resources. Something hard to do for a Project like GHC which has limited corporate sponsorship.
+large upfront investment of resources. Something hard to do for a project like GHC which has limited corporate sponsorship.
 
 ### Pro LLVM? The NCG falls short in certain areas.
 
