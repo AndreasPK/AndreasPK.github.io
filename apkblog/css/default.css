@@ -26,7 +26,7 @@ p {
     -webkit-hyphens: auto;
     -moz-hyphens: auto;
     -ms-hyphens: auto;
-    hyphens: auto;
+    hyphens: none;
     color: #333;
 }
 
