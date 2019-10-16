@@ -3,7 +3,7 @@ title: GHC Week
 tags: Haskell, GHC, Events, GHC Week
 ---
  
-Sponsored by [haskell.org](https://www.haskell.org/) and [Well-Typed](http://www.well-typed.com/).
+Sponsored by [Haskell.org](https://www.haskell.org/) and [Well-Typed](http://www.well-typed.com/).
 
 --------
 
