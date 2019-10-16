@@ -29,13 +29,13 @@ Hopefully improving both GHC and our knowledge about it in the process.
  
 ## What is the deal
  
-For the last few years [mpickering](https://mpickering.github.io/) has organised a shared house  
+For the last few years [mpickering](https://mpickering.github.io/) has organised a shared house
 where some GHC developers stay together during [ICFP](https://icfp20.sigplan.org/). Colloquially called GHC house.
  
 This has historically been a fairly productive environment, however,
 productivity has still been limited by the necessity of giving and attending talks!
  
-We now strive to recreate this environment without the distraction of talks. 
+We now strive to recreate this environment without these distractions. 
 A week whose sole purpose is to focus on GHC and things that
 relate to it, like segfaults and gitlab issues.
  
@@ -74,7 +74,7 @@ Be that implementing a feature, studying a part of GHC's implementation or writi
 You might plan for X and end up doing Y in the end. And that's perfectly fine.
 But you need to have a rough idea about what you want to do during the week beforehand.
 
-### This is *not* a regular haskell hackathon
+### This is *not* a regular Haskell hackathon
  
 The focus of this week will be on GHC. This does not mean you can only work on GHC itself.
 But goals for the week must relate to GHC in a meaningful way.
@@ -83,13 +83,13 @@ To give a few contrived and very opinionated examples for good/bad project ideas
 
 Bad:
 
-* Writing a ray tracer in haskell. 
-* Write a web app using haskell.
-* Learn haskell from the beginning.
+* Writing a ray tracer in Haskell. 
+* Write a web app using Haskell.
+* Learn Haskell from the beginning.
 
 Good Goals:
 
-* Writing a 3D visualization of the haskell heap.
+* Writing a 3D visualization of the Haskell heap.
 * Writing a plugin that replaces every occurrence of `undefined` with `(error "I'm a bad person")`.
 * Work on an alternative Haskell compiler.
 * Working on tools which use the GHC API.
@@ -122,9 +122,9 @@ The downside is that we have more beds than rooms. So expect to share a room wit
  
 Otherwise there are multiple bathrooms and a large kitchen as well to tend to personal needs.
  
-##  Location
+##  Getting there
  
-We meet in Annevoie, Belgium which is about 2 hours from Brussels via public transport.
+Annevoie is about 2 hours from Brussels via public transport. There is a train station in the town.
 
 We will put up more information about how to get there/back and related information
 once we get closer to the actual event.
@@ -141,6 +141,9 @@ Don't forget to include the following information in your request:
 Sadly space is limited so we can't *guarantee* a spot for everyone.
  
 However the avenue has a large number of beds so we are optimistic to accommodate most people who want to participate.
+
+By 7th November we will reply to everyone about whether these is space or not, request the deposit and begin further
+organisation before the event. 
 
 ## Timetable for the event
  
