@@ -3,7 +3,7 @@ title: GHC Week
 tags: Haskell, GHC, Events, GHC Week
 ---
  
-Sponsored by [Haskell.org](https://www.haskell.org/) and [Well-Typed](http://www.well-typed.com/).
+Sponsored by [Haskell.org](https://www.haskell.org/) and [Well-Typed](https://www.well-typed.com/).
 
 --------
 
@@ -59,7 +59,7 @@ We especially want to encourage students, undergraduate or otherwise, who are in
 This is an exceptional opportunity to learn about GHC from experienced developers.
 
 We have some funds available to help those in need with travel and accommodation costs.
-This is possible thanks to our sponsors [Haskell.org](http://haskell.org) and [Well-Typed](http://www.well-typed.com/)
+This is possible thanks to our sponsors [Haskell.org](http://haskell.org) and [Well-Typed](https://www.well-typed.com/)
 
 So don't hesitate to reach out.
 
