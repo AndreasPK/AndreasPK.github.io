@@ -131,7 +131,7 @@ once we get closer to the actual event.
  
 ## I want to participate!
  
-If you want to participate (and why wouldn't you) please email [mpickering](https://mpickering.github.io/) with your request.
+If you want to participate (and why wouldn't you) please email [mpickering](mailto:matthewtpickering@gmail.com) with your request.
 Don't forget to include the following information in your request:
 
 * Your (real) name
