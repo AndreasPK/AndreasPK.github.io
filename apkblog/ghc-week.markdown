@@ -3,6 +3,10 @@ title: GHC Week
 tags: Haskell, GHC, Events, GHC Week
 ---
  
+Sponsored by [haskell.org](https://www.haskell.org/) and [Well-Typed](http://www.well-typed.com/).
+
+--------
+
 I'm excited to announce GHC Week.
  
 ## What is GHC Week
@@ -15,18 +19,18 @@ Hopefully improving both GHC and our knowledge about it in the process.
 ## Quick facts
  
 | Question      | Answer        | 
-| ------------- |:-------------:| 
+| ------------- |:------------- | 
 | When          | March 13th - 20th 2020 | 
 | Where         | Annevoie, Belgium |
 | What          | Learn about and work on GHC together |
 | How to join   | See below for details|
-| Costs?        | ~70€ deposit for accomodation + food/drink/... expenses |
+| Costs?        | 70€ deposit for accomodation + food/drink/... expenses |
 | Tagline       | A conference without talks |
  
 ## What is the deal
  
-For the last few years [mpickering](https://mpickering.github.io/) has organised a shared house where
-GHC developers stay together during [ICFP](https://icfp20.sigplan.org/). Colloquially called GHC house.
+For the last few years [mpickering](https://mpickering.github.io/) has organised a shared house  
+where some GHC developers stay together during [ICFP](https://icfp20.sigplan.org/). Colloquially called GHC house.
  
 This has historically been a fairly productive environment, however,
 productivity has still been limited by the necessity of giving and attending talks!
@@ -47,7 +51,7 @@ bgamari on things related to GHC's infrastructure just to name a few.
 The event is aimed at anyone willing to take a week out of there life to focus on GHC related things together with others.
 
 If you want to work on GHC or improve/use GHC internals this event is for you. 
-Knowledge about GHC internals however is **not** a prerequisite.
+Knowledge about GHC internals is **not** a prerequisite.
 
 ### Call for students
 
@@ -67,7 +71,8 @@ no talks, no scheduled tutorials so it's completely up to you to make the most o
 For this reason we expect you to come with a goal in mind.
 
 Be that implementing a feature, studying a part of GHC's implementation or writing a plugin.
-You might plan for X and end up doing Y in the end. And that's perfectly fine. But you need to have a rough idea beforehand for what you want to do during the week.
+You might plan for X and end up doing Y in the end. And that's perfectly fine.
+But you need to have a rough idea about what you want to do during the week beforehand.
 
 ### This is *not* a regular haskell hackathon
  
@@ -89,16 +94,11 @@ Good Goals:
 * Work on an alternative Haskell compiler.
 * Working on tools which use the GHC API.
 * Set out to improve a error messages for a certain pattern that always annoyed you.
+* Set out to understand the implementation of feature X.
 
 All of these projects are cool ideas, but only the latter ones are a good fit for this event.
  
-## How can I participate?
- 
-See further down.
- 
-## Details
- 
-### Costs
+## Costs
  
 There will be an upfront deposit of 70€.
  
@@ -112,7 +112,7 @@ We will organize some food and drinks, the costs for which will be collected eit
 or after the event.
 Further we will make sure that people have the opportunity to go grocery shopping and there are a few restaurants in walking distance.
  
-### Accommodation
+## Accommodation
  
 We will stay in Annevoie, Belgium in a renovated old mill. Judging by the pictures it is a lovely place. Hopefully there’s also decent wifi.
  
@@ -122,14 +122,14 @@ The downside is that we have more beds than rooms. So expect to share a room wit
  
 Otherwise there are multiple bathrooms and a large kitchen as well to tend to personal needs.
  
-###  Location
+##  Location
  
 We meet in Annevoie, Belgium which is about 2 hours from Brussels via public transport.
 
 We will put up more information about how to get there/back and related information
 once we get closer to the actual event.
  
-### I want to participate!
+## I want to participate!
  
 If you want to participate (and why wouldn't you) please email [mpickering](https://mpickering.github.io/) with your request.
 Don't forget to include the following information in your request:
