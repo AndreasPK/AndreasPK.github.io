@@ -16,10 +16,10 @@
             </hgroup>
             <nav id="navigation">
                 <a href="../index.html">Home</a>
-                <a href="../about.html">About</a>
+                <a href="../about me.html">About</a>
                 <a href="../work.html">Work with me</a>
-                <a href="../contact.html">Contact</a>
                 <a href="../archive.html">Archive</a>
+                <a href="../ghc-week.html">GHC Week!</a>
             </nav>
         </header>
 
@@ -97,12 +97,11 @@ Then running nofib twice, once using <code>-fllvm</code> and once without.</p>
 <p>The two major hurdles here are <a href="https://gitlab.haskell.org/ghc/ghc/wikis/commentary/rts/storage/heap-objects">tables next to code</a> and the fact that GHC uses two stacks.</p>
 <p>LLVM does not support tables next to code well despite being discussed as far back as <a href="http://lists.llvm.org/pipermail/llvm-dev/2012-February/047555.html">7 years ago</a>.<br />
 The reason for this is the combination of GHC not being an important user of LLVM, and few GHC devs being interested in writing patches for LLVM.<br />
-So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) just so we can have tables next to code.<br />
-This is bad for all kinds of reasons.</p>
+So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) so that we can among other things place data needed by the gc inline next to the code (Tables next to code). This is bad for all kinds of reasons.</p>
 <p>Somewhat related is the fact that GHC uses two stacks, one being heap allocated. Which is also something LLVM was not designed for and a result llvm does “struggle” with the resulting code.</p>
-<p>The last point of friction comes in the form of compile time. Some of this is lack of optimization for the llvm backend on GHC’s side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the shared Cmm pipeline. Some of it is just llvm doing so much more work.</p>
+<p>The last point of friction comes in the form of compile time. Some of this is lack of optimization for the llvm backend on GHCs side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the shared Cmm pipeline. Some of it is just llvm doing so much more work.</p>
 <p>That being said it’s not clear to what degree this is unavoidable because of the nature of Haskell code. And to what degree this could be solved with redesigns for parts of GHC.</p>
-<p>But from my perspective even just figuring out if LLVM is a suitable long term solution requires a large upfront investment of resources. Something hard to do for a Project like GHC which has limited corporate sponsorship.</p>
+<p>But from my perspective even just figuring out if LLVM is a suitable long term solution requires a large upfront investment of resources. Something hard to do for a project like GHC which has limited corporate sponsorship.</p>
 <h3 id="pro-llvm-the-ncg-falls-short-in-certain-areas.">Pro LLVM? The NCG falls short in certain areas.</h3>
 <p>It’s no secret that GHC’s default backend falls short in certain areas:</p>
 <ul>
