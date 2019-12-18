@@ -128,19 +128,36 @@ Annevoie is about 2 hours from Brussels via public transport. There is a train s
 
 We will put up more information about how to get there/back and related information
 once we get closer to the actual event.
- 
-## I want to participate!
- 
-If you want to participate (and why wouldn't you) please email [mpickering](mailto:matthewtpickering@gmail.com) with your request.
-Don't forget to include the following information in your request:
 
-* Your (real) name
-* Reason for wanting to attend. (1-10 Sentences)
-* Any additional information the organisers should know about
+## Participants List
 
-Sadly space is limited so we can't *guarantee* a spot for everyone.
- 
-However the avenue has a large number of beds so we are optimistic to accommodate most people who want to participate.
+* Alexandre Baldé
+* Alina Banerjee
+* Joachim Breitner
+* Zubin Duggal
+* John Ericson
+* Ben Gamari
+* Krzysztof Gogolewski
+* Sebastian Graf
+* Daniel Gröber
+* Sylvain HENRY
+* Csaba Hruska
+* Csongor Kiss
+* Andreas Klebinger
+* Luke Lau
+* Andres Löh
+* Leif Metcalf
+* Artem Ohanjanyan
+* Matthew Pickering
+* Péter Dávid Podlovics
+* Bryan Richter
+* Vaibhav Sagar
+* Luite Stegeman
+* Sven Tennie
+* David van Balen
+* Jan van Brügge
+* Jamie Willis
+* Ningning Xie
 
 
 ## Timetable for the event
