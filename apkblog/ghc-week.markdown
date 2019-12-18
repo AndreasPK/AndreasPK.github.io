@@ -2,45 +2,45 @@
 title: GHC Week
 tags: Haskell, GHC, Events, GHC Week
 ---
- 
+
 Sponsored by [Haskell.org](https://www.haskell.org/) and [Well-Typed](https://www.well-typed.com/).
 
 --------
 
 I'm excited to announce GHC Week.
- 
+
 ## What is GHC Week
- 
+
 GHC Week is a week long gathering of GHC developers and people who want to become one.
- 
+
 We will get together in a large cottage to learn from each other about GHC development and related topics.
 Hopefully improving both GHC and our knowledge about it in the process.
- 
+
 ## Quick facts
- 
-| Question      | Answer        | 
-| ------------- |:------------- | 
-| When          | March 13th - 20th 2020 | 
+
+| Question      | Answer        |
+| ------------- |:------------- |
+| When          | March 13th - 20th 2020 |
 | Where         | Annevoie, Belgium |
 | What          | Learn about and work on GHC together |
 | How to join   | See below for details|
 | Costs?        | 70€ deposit for accomodation + food/drink/... expenses |
 | Tagline       | A conference without talks |
- 
+
 ## What is the deal
- 
+
 For the last few years [mpickering](https://mpickering.github.io/) has organised a shared house
 where some GHC developers stay together during [ICFP](https://icfp20.sigplan.org/). Colloquially called GHC house.
- 
+
 This has historically been a fairly productive environment, however,
 productivity has still been limited by the necessity of giving and attending talks!
- 
-We now strive to recreate this environment without these distractions. 
+
+We now strive to recreate this environment without these distractions.
 A week whose sole purpose is to focus on GHC and things that
 relate to it, like segfaults and gitlab issues.
- 
+
 If you want to do a deep dive into GHC this is the perfect opportunity!
- 
+
 There will likely be someone there to collaborate on most parts of GHC.
 Like mpickering on TH and profiling. Myself for backend performance or
 bgamari on things related to GHC's infrastructure just to name a few.
@@ -50,7 +50,7 @@ bgamari on things related to GHC's infrastructure just to name a few.
 
 The event is aimed at anyone willing to take a week out of there life to focus on GHC related things together with others.
 
-If you want to work on GHC or improve/use GHC internals this event is for you. 
+If you want to work on GHC or improve/use GHC internals this event is for you.
 Knowledge about GHC internals is **not** a prerequisite.
 
 ### Call for students
@@ -75,15 +75,15 @@ You might plan for X and end up doing Y in the end. And that's perfectly fine.
 But you need to have a rough idea about what you want to do during the week beforehand.
 
 ### This is *not* a regular Haskell hackathon
- 
+
 The focus of this week will be on GHC. This does not mean you can only work on GHC itself.
 But goals for the week must relate to GHC in a meaningful way.
-  
+
 To give a few contrived and very opinionated examples for good/bad project ideas:
 
 Bad:
 
-* Writing a ray tracer in Haskell. 
+* Writing a ray tracer in Haskell.
 * Write a web app using Haskell.
 * Learn Haskell from the beginning.
 
@@ -97,33 +97,33 @@ Good Goals:
 * Set out to understand the implementation of feature X.
 
 All of these projects are cool ideas, but only the latter ones are a good fit for this event.
- 
+
 ## Costs
- 
+
 There will be an upfront deposit of 70€.
- 
+
 ### What is included in the deposit
- 
+
 The deposit will be used to pay for accommodation and a few shared commodities. We hope to be able to refund parts of the deposit depending on actual cost but this can only be determined after the event.
- 
+
 ### Expected other costs
- 
+
 We will organize some food and drinks, the costs for which will be collected either on site
 or after the event.
 Further we will make sure that people have the opportunity to go grocery shopping and there are a few restaurants in walking distance.
- 
+
 ## Accommodation
- 
+
 We will stay in Annevoie, Belgium in a renovated old mill. Judging by the pictures it is a lovely place. Hopefully there’s also decent wifi.
- 
+
 It has a nice open living area for collaboration and relaxation. Containing both couches as well as large tables.
- 
+
 The downside is that we have more beds than rooms. So expect to share a room with others.
- 
+
 Otherwise there are multiple bathrooms and a large kitchen as well to tend to personal needs.
- 
+
 ##  Getting there
- 
+
 Annevoie is about 2 hours from Brussels via public transport. There is a train station in the town.
 
 We will put up more information about how to get there/back and related information
@@ -142,15 +142,13 @@ Sadly space is limited so we can't *guarantee* a spot for everyone.
  
 However the avenue has a large number of beds so we are optimistic to accommodate most people who want to participate.
 
-By 7th November we will reply to everyone about whether these is space or not, request the deposit and begin further
-organisation before the event. 
 
 ## Timetable for the event
- 
+
 * by 31st October - Inform us of intent to attend the event
 * by 7th November - Potential participants receive notification of acceptance or rejection.
 * by 31st November - 70€ deposit due from participants to confirm attendance
 * by 14th December - Attendee list published
-* by 28th Feb - Complete final pre-event questionnaire 
+* by 28th Feb - Complete final pre-event questionnaire
 
 
