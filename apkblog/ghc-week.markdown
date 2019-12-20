@@ -152,6 +152,7 @@ once we get closer to the actual event.
 * Péter Dávid Podlovics
 * Bryan Richter
 * Vaibhav Sagar
+* Hannes Siebenhandl
 * Luite Stegeman
 * Sven Tennie
 * David van Balen
