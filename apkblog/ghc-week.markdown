@@ -1,7 +1,11 @@
 ---
-title: GHC Week
+title: GHC Week - Canceled
 tags: Haskell, GHC, Events, GHC Week
 ---
+
+This event has been canceled because of COVID-19
+
+--------
 
 Sponsored by [Haskell.org](https://www.haskell.org/) and [Well-Typed](https://www.well-typed.com/).
 
