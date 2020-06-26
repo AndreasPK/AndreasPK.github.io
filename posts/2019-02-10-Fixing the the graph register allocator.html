@@ -3,7 +3,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>Andreas Klebingers Blog - Fixing GHC's graph register allocator.</title>
+        <title>Andreas Klebingers Blog - 2019-02-10-Fixing the the graph register allocator</title>
         <link rel="stylesheet" type="text/css" href="../css/default.css" />
         <link rel="stylesheet" type="text/css" href="../css/custom.css" />
         <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
@@ -25,13 +25,24 @@
 
 
         <div id="content">
-            <h1>Fixing GHC's graph register allocator.</h1>
+            <h1>2019-02-10-Fixing the the graph register allocator</h1>
 
             <div class="info">
     Posted on February 10, 2019
     
 </div>
 
+<header id="header">
+<hgroup id="logo">
+<a href="../index.html">Andreas Klebingers Blog</a>
+</hgroup>
+<nav id="navigation"> <a href="../index.html">Home</a> <a href="../about.html">About</a> <a href="../work.html">Work with me</a> <a href="../archive.html">Archive</a> <a href="../ghc-week.html">GHC Week!</a> </nav>
+</header>
+<div id="content">
+<h1 id="fixing-ghcs-graph-register-allocator.">Fixing GHC’s graph register allocator.</h1>
+<div class="info">
+Posted on February 10, 2019
+</div>
 <p>A course I took recently covered (graph) register allocators. So I took a look at GHC’s implementation of register allocation.<br />
 While doing so I realized that a longstanding bug would be easy to fix so I did!</p>
 <p>Namely the current graph register allocator (<code>-fregs-graph</code>) just panics if code requires <a href="https://ghc.haskell.org/trac/ghc/ticket/8657">too many live variables</a>.</p>
@@ -42,6 +53,7 @@ While doing so I realized that a longstanding bug would be easy to fix so I did!
 <p>The register allocator assigns variables to registers. When we run out of registers we fall back and also use the stack as storage space.</p>
 <p>Running out of registers is usually not a huge deal but it’s what triggers this bug. For a simple example consider the naive code below and assume we only have two registers available.</p>
 <p>I’ve added comments with variables live after each statement and a possible register assignment.</p>
+<div id="cb1" class="sourceCode">
 <div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb1-1" title="1">  <span class="dt">int</span> v1,v2,v3,v4;</a>
 <a class="sourceLine" id="cb1-2" title="2"></a>
 <a class="sourceLine" id="cb1-3" title="3">  v1 = <span class="dv">1</span>; <span class="co">// v1 live          | registers: (v1,empty)</span></a>
@@ -51,9 +63,11 @@ While doing so I realized that a longstanding bug would be easy to fix so I did!
 <a class="sourceLine" id="cb1-7" title="7">  v4 = v4 + v3; <span class="co">// v4 live    | registers: (v4,empty)</span></a>
 <a class="sourceLine" id="cb1-8" title="8"></a>
 <a class="sourceLine" id="cb1-9" title="9">  <span class="cf">return</span> v4;</a></code></pre></div>
+</div>
 <p>In the line with the register assignment <code>???</code> we run into the issue of having more values than we can keep in registers.</p>
 <p>The solution is rather simple. We <em>spill</em> on of the values from a register to the stack (memory). Loading it again before we need it. How to determine a good choice for WHICH value to move into memory is complicated but not important for this bug.</p>
 <p>Skipping over quite a lot of details our assignments might look something like this now if we include spilling:</p>
+<div id="cb2" class="sourceCode">
 <div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb2-1" title="1">  <span class="dt">int</span> v1,v2,v3,v4;</a>
 <a class="sourceLine" id="cb2-2" title="2"></a>
 <a class="sourceLine" id="cb2-3" title="3">  v1 = <span class="dv">1</span>; <span class="co">// v1 live              | registers: (v1,empty)     stack: []</span></a>
@@ -67,6 +81,7 @@ While doing so I realized that a longstanding bug would be easy to fix so I did!
 <a class="sourceLine" id="cb2-11" title="11">  v4 = v4 + v3; <span class="co">// v4 live        | registers: (empty,v4)     stack: []</span></a>
 <a class="sourceLine" id="cb2-12" title="12"></a>
 <a class="sourceLine" id="cb2-13" title="13">  <span class="cf">return</span> v4;</a></code></pre></div>
+</div>
 <h2 id="the-actual-issue.">The actual issue.</h2>
 <p>Currently, just like we can run out of registers we can run out of stack space.</p>
 <p>The reason is that currently the graph allocator preallocates a certain amount of stack space (refered to as spill slots) for us to spill variables.</p>
@@ -102,6 +117,13 @@ Andi@Horzube MINGW64 /e/graphTest</code></pre>
 These <a href="https://ghc.haskell.org/trac/ghc/ticket/7679">performance issues</a> have been there for some time and this won’t fix these.<br />
 But now you can at least see if it works better for your code without running into unfixable panics.</p>
 <p>I also have some ideas to improve the performance of the graph allocator. But properly tackling these will be a another larger project.</p>
+</div>
+<div id="footer">
+
+</div>
+<div style="display: none">
+If you found this and we meet tell me. I will buy you a drink.
+</div>
 
         </div>
         <div id="footer">

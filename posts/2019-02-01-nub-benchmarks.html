@@ -3,7 +3,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>Andreas Klebingers Blog - Comparing nub implementations.</title>
+        <title>Andreas Klebingers Blog - 2019-02-01-nub-benchmarks</title>
         <link rel="stylesheet" type="text/css" href="../css/default.css" />
         <link rel="stylesheet" type="text/css" href="../css/custom.css" />
         <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
@@ -25,17 +25,30 @@
 
 
         <div id="content">
-            <h1>Comparing nub implementations.</h1>
+            <h1>2019-02-01-nub-benchmarks</h1>
 
             <div class="info">
     Posted on February  1, 2019
     
 </div>
 
+<header id="header">
+<hgroup id="logo">
+<a href="../index.html">Andreas Klebingers Blog</a>
+</hgroup>
+<nav id="navigation"> <a href="../index.html">Home</a> <a href="../about.html">About</a> <a href="../work.html">Work with me</a> <a href="../archive.html">Archive</a> <a href="../ghc-week.html">GHC Week!</a> </nav>
+</header>
+<div id="content">
+<h1 id="comparing-nub-implementations.">Comparing nub implementations.</h1>
+<div class="info">
+Posted on February 1, 2019
+</div>
 <p>This post was inspired by <a href="https://medium.com/permutive/having-your-cake-and-eating-it-9f462bf3f908">this medium blog post</a> and the following <a href="https://www.reddit.com/r/haskell/comments/alnkjh/having_your_cake_and_eating_it_pure_mutable_state/">discussion on reddit</a>.</p>
 <p>There was a lot of discussion about big O performance. But zero numbers, which was sad so here we go.</p>
 <h1 id="recapping-the-nub-function.">Recapping the nub function.</h1>
+<div id="cb1" class="sourceCode">
 <div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">nub ::</span> <span class="dt">Eq</span> a <span class="ot">=&gt;</span> [a] <span class="ot">-&gt;</span> [a]</a></code></pre></div>
+</div>
 <p>It’s really simple. We take a list and remove any duplicates.</p>
 <p>Ideally this is also stable. Meaning if two elements compare as equal we only keep the first one.</p>
 <p>Not all of the implementations play by these rules. Some relax the requirement to keep the first or don’t keep the elements in order at all.</p>
@@ -46,8 +59,10 @@
 <li>So we pretend we never heard of text/bytestring and go with [Char].</li>
 </ul>
 <p>In order to get a bunch of strings I took a ghc dump and split it into words. So the spirit of the code is something like this:</p>
+<div id="cb2" class="sourceCode">
 <div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1">bench <span class="fu">words</span> size <span class="ot">=</span></a>
 <a class="sourceLine" id="cb2-2" title="2">  bench <span class="st">&quot;name&quot;</span> <span class="op">$</span> whnf (<span class="fu">length</span> <span class="op">.</span> nub<span class="op">*</span>) (<span class="fu">take</span> size <span class="fu">words</span>)</a></code></pre></div>
+</div>
 <p><code>length</code> is only there to make sure we have evaluated the whole structure of the list. This avoids the overhead of nf which would be traversing all strings completely which would only distort the results.</p>
 <p>I also skipped length in one variant to check the performance in the case of laziness, but it’s not that interesting.</p>
 <h1 id="which-nub-variants-are-we-looking-at.">Which nub* variants are we looking at.</h1>
@@ -124,6 +139,13 @@
 <li>Did not consider any list fusion that might be possible for these.</li>
 </ul>
 <p>I still think it gives a decent idea, but take it as what it is and not a ultimate judgement.</p>
+</div>
+<div id="footer">
+
+</div>
+<div style="display: none">
+If you found this and we meet tell me. I will buy you a drink.
+</div>
 
         </div>
         <div id="footer">
