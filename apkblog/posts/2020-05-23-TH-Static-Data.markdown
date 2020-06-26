@@ -1,5 +1,9 @@
 ---
-title: Using Template Haskell to generate static data.
+postNumber: 157
+title: Using Template Haskell to generate static data
+author: Andreas Klebinger
+categories: ghc, performance
+postName: th-for-static-data
 ---
 
 Template Haskell (TH) is a powerful tool for specializing programs
@@ -7,7 +11,7 @@ and allows shifting some work from runtime to compile time.
 
 It can be a bit intimidating to use for beginners. So I thought I
 would write up how to use TH to turn a certain kind runtime computations
-into compile time computations.
+into compile time computations. 
 
 In particular we will turn the initialization of a fully static data
 structure into a compile time operation.
@@ -26,6 +30,8 @@ isStaticId x =
   where
     staticIds = [1,2,3,5,7 :: Int]
 ```
+
+<!-- more -->
 
 We have a set of known things here represented by a list in the form of `staticIds`.
 
@@ -246,3 +252,7 @@ tracker.](https://gitlab.haskell.org/ghc/ghc/issues/16944).
 
 So hopefully this will work for arrays at some point in the future.
 
+## Haven't I read this before somewhere?
+
+This was initially published on to the [Well Typed blog](http://www.well-typed.com/blog/2020/06/th-for-static-data/).
+In the process of publishing it there parts of it have been much improved by contributions from Well-Typed.
