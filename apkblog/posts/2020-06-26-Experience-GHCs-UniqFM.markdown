@@ -56,7 +56,7 @@ type Unique = Int
 
 getUnique :: HasUnique a => a -> Unique
 
-data UniqM a = UniqM key (IntMap a)
+data UniqM key a = UniqM (IntMap a)
 
 lookup :: HasUnique key => key -> UniqM key a -> a
 insert :: HasUnique key => key -> a -> UniqM key a -> UniqM key a
