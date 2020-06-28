@@ -3,7 +3,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>Andreas Klebingers Blog - 2018-05-19-gsoc1</title>
+        <title>Andreas Klebingers Blog - Improving GHC's code generation - Summer of Code - Part 1</title>
         <link rel="stylesheet" type="text/css" href="../css/default.css" />
         <link rel="stylesheet" type="text/css" href="../css/custom.css" />
         <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
@@ -25,24 +25,13 @@
 
 
         <div id="content">
-            <h1>2018-05-19-gsoc1</h1>
+            <h1>Improving GHC's code generation - Summer of Code - Part 1</h1>
 
             <div class="info">
     Posted on May 19, 2018
     
 </div>
 
-<header id="header">
-<hgroup id="logo">
-<a href="../index.html">Andreas Klebingers Blog</a>
-</hgroup>
-<nav id="navigation"> <a href="../index.html">Home</a> <a href="../about.html">About</a> <a href="../work.html">Work with me</a> <a href="../archive.html">Archive</a> <a href="../ghc-week.html">GHC Week!</a> </nav>
-</header>
-<div id="content">
-<h1 id="improving-ghcs-code-generation---summer-of-code---part-1">Improving GHC’s code generation - Summer of Code - Part 1</h1>
-<div class="info">
-Posted on May 19, 2018
-</div>
 <p>This post assumes some knowledge about the <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/HscMain">GHC compilation pipeline</a> ,<a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Cmm">Cmm</a> and a little bit of assembly.</p>
 <h1 id="block-layout">Block Layout</h1>
 <p>As expected GHC’s code generator eventually produces a list of basic blocks which are then layout out sequentially before finally being translated to a binary.</p>
@@ -74,7 +63,6 @@ Posted on May 19, 2018
 <p>For highlighting the basic issues we don’t have to look far. The factorial function already shows some of the problems with ghcs algorithm. Even if they are NOT an issue for this function,</p>
 <p>Consider the following Cmm code for factorial:</p>
 <h3 id="cmm-code">Cmm Code</h3>
-<div id="cb1" class="sourceCode">
 <div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb1-1" title="1">       c4Ba: stack check</a>
 <a class="sourceLine" id="cb1-2" title="2">           <span class="cf">if</span> ((Sp + -<span class="dv">16</span>) &lt; SpLim) (likely: False) <span class="cf">goto</span> c4Bb; <span class="cf">else</span> <span class="cf">goto</span> c4Bc;</a>
 <a class="sourceLine" id="cb1-3" title="3">       c4Bb: run gc <span class="cf">if</span> stack exhausted</a>
@@ -97,7 +85,6 @@ Posted on May 19, 2018
 <a class="sourceLine" id="cb1-20" title="20">       c4B9: x = <span class="dv">1</span></a>
 <a class="sourceLine" id="cb1-21" title="21">           R1 = <span class="dv">1</span>;</a>
 <a class="sourceLine" id="cb1-22" title="22">           call (P64[Sp])(R1) args: <span class="dv">8</span>, res: <span class="dv">0</span>, upd: <span class="dv">8</span>;</a></code></pre></div>
-</div>
 <h3 id="control-flow">Control Flow</h3>
 <p><img src="../resources/cfg1.svg" title="Factorial CFG" /></p>
 <h3 id="actual-control-flow">Actual Control Flow</h3>
@@ -160,7 +147,7 @@ Posted on May 19, 2018
 </tr>
 </tbody>
 </table>
-<p>The main issue with this is that we have to update the cfg with any changes to the control flow the asm passes introduce after we have created the initial cfg. While it was quiet annoying to track down all the places where this happens in the end with some persistence I found all of these.<sup>At least for x64 …<sup>I hope …</sup></sup></p>
+<p>The main issue with this is that we have to update the cfg with any changes to the control flow the asm passes introduce after we have created the initial cfg. While it was quiet annoying to track down all the places where this happens in the end with some persistence I found all of these.<sup>At least for x64 …<sup>I hope …</sup> </sup></p>
 <p>For x64 these passes change the cfg:</p>
 <h4 id="linear-register-allocation">Linear register allocation</h4>
 <p>Here we add blocks when we join two control flow paths. I solved this by tracking inserted nodes in the register allocator state and updating the cfg afterwards.</p>
@@ -201,13 +188,6 @@ C: ...</code></pre>
 <h3 id="conclusion">Conclusion</h3>
 <p>I’ve dug pretty deep into this. But with the results as they are this does not seem ready for production. Given the time constraints of GSOC I will for now shelf my patch and probably revisit it when I work on likelyhood information again.</p>
 <p>I will put the patch up on phabricator once I have cleaned it up a bit. If you have ideas or feedback hit me on IRC or comment on <a href="https://ghc.haskell.org/trac/ghc/ticket/15124">trac #15124</a>.</p>
-</div>
-<div id="footer">
-
-</div>
-<div style="display: none">
-If you found this and we meet tell me. I will buy you a drink.
-</div>
 
         </div>
         <div id="footer">

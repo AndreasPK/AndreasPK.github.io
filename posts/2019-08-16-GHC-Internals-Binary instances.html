@@ -3,7 +3,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>Andreas Klebingers Blog - 2019-08-16-GHC-Internals-Binary instances</title>
+        <title>Andreas Klebingers Blog - GHC Internals - Binary instances, Interface files and number encodings.</title>
         <link rel="stylesheet" type="text/css" href="../css/default.css" />
         <link rel="stylesheet" type="text/css" href="../css/custom.css" />
         <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
@@ -25,24 +25,13 @@
 
 
         <div id="content">
-            <h1>2019-08-16-GHC-Internals-Binary instances</h1>
+            <h1>GHC Internals - Binary instances, Interface files and number encodings.</h1>
 
             <div class="info">
     Posted on August 16, 2019
     
 </div>
 
-<header id="header">
-<hgroup id="logo">
-<a href="../index.html">Andreas Klebingers Blog</a>
-</hgroup>
-<nav id="navigation"> <a href="../index.html">Home</a> <a href="../about.html">About</a> <a href="../work.html">Work with me</a> <a href="../archive.html">Archive</a> <a href="../ghc-week.html">GHC Week!</a> </nav>
-</header>
-<div id="content">
-<h1 id="ghc-internals---binary-instances-interface-files-and-number-encodings.">GHC Internals - Binary instances, Interface files and number encodings.</h1>
-<div class="info">
-Posted on August 16, 2019
-</div>
 <p>This is a post about how I reduced the size of interface files by about 20% with one easy trick.</p>
 <h2 id="interface-files-binary">Interface files &amp; Binary</h2>
 <p>GHC uses it’s own Binary class to serialize values for a hand full of reasons. The instances of the class in turn are used to write out <code>.hi</code> (interface) files.</p>
@@ -62,7 +51,6 @@ This means if our number will fit in 7 bits, we use at most a byte in our data s
 These are straight forward translations from the algorithm given on wikipedia, and are not yet very optimized, although the code below seems to be reasonably efficient.</p>
 <h3 id="unsigned">Unsigned</h3>
 <p>The unsigned one is rather straight forward:</p>
-<div id="cb1" class="sourceCode">
 <div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">putULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
 <a class="sourceLine" id="cb1-2" title="2">putULEB128 bh w <span class="ot">=</span></a>
 <a class="sourceLine" id="cb1-3" title="3"><span class="co">-- #if defined(DEBUG)</span></a>
@@ -79,12 +67,10 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb1-14" title="14">        <span class="kw">let</span> byte <span class="ot">=</span> setBit (<span class="fu">fromIntegral</span> w) <span class="dv">7</span><span class="ot"> ::</span> <span class="dt">Word8</span></a>
 <a class="sourceLine" id="cb1-15" title="15">        putByte bh byte</a>
 <a class="sourceLine" id="cb1-16" title="16">        go (w <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span>)</a></code></pre></div>
-</div>
 <p>We write out values in little endian order. Starting with the least significant bits.</p>
 <p>If we have a value &lt;= 127 we can just write the least significant byte and are done.</p>
 <p>Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have to consume additional data, shift our initial value right by 7 bits and repeat.</p>
 <p>Reading works similarly.</p>
-<div id="cb2" class="sourceCode">
 <div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="ot">getULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
 <a class="sourceLine" id="cb2-2" title="2">getULEB128 bh <span class="ot">=</span></a>
 <a class="sourceLine" id="cb2-3" title="3">    go <span class="dv">0</span> <span class="dv">0</span></a>
@@ -99,12 +85,10 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb2-12" title="12">                go (shift<span class="op">+</span><span class="dv">7</span>) val</a>
 <a class="sourceLine" id="cb2-13" title="13">            <span class="kw">else</span></a>
 <a class="sourceLine" id="cb2-14" title="14">                <span class="fu">return</span> <span class="op">$!</span> val</a></code></pre></div>
-</div>
 <p>We read a byte, combine it with what we have read already and check the mark bit if we need to read more bytes.</p>
 <p>The only noteworthy thing here is that we are using a little endian encoding so we have to shift bits read later farther to the left. Which we can do by keeping track of the current shift offset - <code>shift</code> in the code above.</p>
 <h3 id="signed-values">Signed values</h3>
 <p>Signed values are slightly tricker because of sign extension.</p>
-<div id="cb3" class="sourceCode">
 <div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1"><span class="co">-- Signed numbers</span></a>
 <a class="sourceLine" id="cb3-2" title="2"><span class="ot">putSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
 <a class="sourceLine" id="cb3-3" title="3">putSLEB128 bh initial <span class="ot">=</span> go initial</a>
@@ -125,7 +109,6 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb3-18" title="18">        putByte bh byte'</a>
 <a class="sourceLine" id="cb3-19" title="19"></a>
 <a class="sourceLine" id="cb3-20" title="20">        unless done <span class="op">$</span> go val'</a></code></pre></div>
-</div>
 <p>We still write out numbers 7 bits a piece, but our termination condition is different.</p>
 <p>The reason is how negative numbers are <a href="https://en.wikipedia.org/wiki/Two%27s_complement">encoded</a>.</p>
 <p>The main things to keep in mind here are that:</p>
@@ -137,7 +120,6 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <p>We can stop writing bytes only if a reader can reconstruct both the value and the sign.</p>
 <p>This means the highest data bit (<code>signBit</code>) written must match the sign of the value, and there are no more data bits to be written. We check for these conditions and assign the value to <code>done</code>.</p>
 <p>Reading again the same in reverse.</p>
-<div id="cb4" class="sourceCode">
 <div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1"><span class="ot">getSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
 <a class="sourceLine" id="cb4-2" title="2">getSLEB128 bh <span class="ot">=</span> <span class="kw">do</span></a>
 <a class="sourceLine" id="cb4-3" title="3">    (val,shift,signBit) <span class="ot">&lt;-</span> go <span class="dv">0</span> <span class="dv">0</span></a>
@@ -158,11 +140,9 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb4-18" title="18">                <span class="kw">else</span> <span class="kw">do</span></a>
 <a class="sourceLine" id="cb4-19" title="19">                    <span class="kw">let</span> <span class="op">!</span>signBit <span class="ot">=</span> testBit byte <span class="dv">6</span></a>
 <a class="sourceLine" id="cb4-20" title="20">                    <span class="fu">return</span> (val',shift',signBit)</a></code></pre></div>
-</div>
 <p>When we read the last byte we check the <code>signBit</code> to reconstruct the sign. If we deal with a negative value we manually <a href="https://en.wikipedia.org/wiki/Sign_extension">sign extend</a> the resulting value properly.</p>
 <h2 id="applying-the-change-to-ghc">Applying the change to GHC</h2>
 <p>The change itself then isn’t all that much, we just use our functions inside the instances.</p>
-<div id="cb5" class="sourceCode">
 <div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb5-1" title="1"><span class="kw">instance</span> <span class="dt">Binary</span> <span class="dt">Word16</span> <span class="kw">where</span></a>
 <a class="sourceLine" id="cb5-2" title="2">  put_ <span class="ot">=</span> putULEB128</a>
 <a class="sourceLine" id="cb5-3" title="3">  get  <span class="ot">=</span> getULEB128</a>
@@ -172,7 +152,6 @@ These are straight forward translations from the algorithm given on wikipedia, a
 <a class="sourceLine" id="cb5-7" title="7">  get  <span class="ot">=</span> getULEB128</a>
 <a class="sourceLine" id="cb5-8" title="8"></a>
 <a class="sourceLine" id="cb5-9" title="9"><span class="op">...</span></a></code></pre></div>
-</div>
 <p>I’ve tested the encodings heavily outside GHC. Primarily because any change to the Binary instances requires a full rebuild, to avoid files persisting which still use the old instances.</p>
 <p>However even so I only got a failed build.</p>
 <pre><code>&quot;inplace/bin/ghc-stage1.exe&quot; -optc-Wall -optc-Ilibraries/ghc-prim/dist-install/build/./autogen -optc-Ilibraries/ghc-prim/. -optc-I'E:/ghc_head/rts/dist/build' -optc-I'E:/ghc_head/includes' -optc-I'E:/ghc_head/includes/dist-derivedconstants/header' -optc-Wno-error=inline -optc-Wno-sync-nand -static  -O -H64m -Wall      -this-unit-id ghc-prim-0.6.1 -hide-all-packages -i -ilibraries/ghc-prim/. -ilibraries/ghc-prim/dist-install/build -Ilibraries/ghc-prim/dist-install/build -ilibraries/ghc-prim/dist-install/build/./autogen -Ilibraries/ghc-prim/dist-install/build/./autogen -Ilibraries/ghc-prim/.    -optP-include -optPlibraries/ghc-prim/dist-install/build/./autogen/cabal_macros.h -package-id rts -this-unit-id ghc-prim -XHaskell2010 -O2 -O  -no-user-package-db -rtsopts  -Wno-trustworthy-safe -Wno-deprecated-flags     -Wnoncanonical-monad-instances  -c libraries/ghc-prim/cbits/atomic.c -o libraries/ghc-prim/dist-install/build/cbits/atomic.o
@@ -204,7 +183,6 @@ make: *** [Makefile:128: all] Error 2</code></pre>
 <p>So I simply removed the instance and let GHC tell me all the places where it was used.</p>
 <h3 id="the-culprit">The culprit</h3>
 <p>Given that roundtripping worked I suspected early on that some usage of the instance relies on it’s encoded size. And indeed while tracking down instance usages eventually I found this use case:</p>
-<div id="cb7" class="sourceCode">
 <div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1"><span class="ot">putWithUserData ::</span> <span class="dt">Binary</span> a <span class="ot">=&gt;</span> (<span class="dt">SDoc</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()) <span class="ot">-&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
 <a class="sourceLine" id="cb7-2" title="2">putWithUserData log_action bh payload <span class="ot">=</span> <span class="kw">do</span></a>
 <a class="sourceLine" id="cb7-3" title="3">    <span class="co">-- Remember where the dictionary pointer will go</span></a>
@@ -220,11 +198,9 @@ make: *** [Makefile:128: all] Error 2</code></pre>
 <a class="sourceLine" id="cb7-13" title="13">    dict_p <span class="ot">&lt;-</span> tellBin bh          <span class="co">-- This is where the dictionary will start</span></a>
 <a class="sourceLine" id="cb7-14" title="14">    putAt bh dict_p_p dict_p      <span class="co">-- Fill in the placeholder</span></a>
 <a class="sourceLine" id="cb7-15" title="15">    seekBin bh dict_p             <span class="co">-- Seek back to the end of the file</span></a></code></pre></div>
-</div>
 <p>Here <code>dict_p_p</code> was using the Word32 instance.</p>
 <p>The problem is that the placeholder might end up being <strong>smaller</strong> than the actual value. So writing into the reserved spot might (and did) overwrite data following it.</p>
 <p>For example we might get:</p>
-<div id="cb8" class="sourceCode">
 <div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb8-1" title="1">    <span class="co">-- Get position in stream, let's say it's zero.</span></a>
 <a class="sourceLine" id="cb8-2" title="2">    dict_p_p <span class="ot">&lt;-</span> tellBin bh</a>
 <a class="sourceLine" id="cb8-3" title="3">    </a>
@@ -240,7 +216,6 @@ make: *** [Makefile:128: all] Error 2</code></pre>
 <a class="sourceLine" id="cb8-13" title="13">    <span class="co">-- Will write two bytes into the reserved space,</span></a>
 <a class="sourceLine" id="cb8-14" title="14">    <span class="co">-- but only one byte was reserved above.</span></a>
 <a class="sourceLine" id="cb8-15" title="15">    putAt bh dict_p_p dict_p</a></code></pre></div>
-</div>
 <p>So I simple changed the <code>Bin</code> (stream position) instance to write a fixed number of bytes and things worked out.</p>
 <h2 id="results">Results</h2>
 <p>The end result of this is that we save about 20% in interface file size.</p>
@@ -252,13 +227,6 @@ $ ls nofib/spectral/simple/Main.hi -l
 <pre><code>$ ls nofib/spectral/simple/Main.hi -l
 -rw-r--r-- 1 Andi None 96058 Aug 15 19:42 nofib/spectral/simple/Main.hi</code></pre>
 <p>Although the actual benefit varies depending on the file in question. I’ve seen some with &gt;25% size reductions and others closer to 10%. But it’s a decent win in all cases.</p>
-</div>
-<div id="footer">
-
-</div>
-<div style="display: none">
-If you found this and we meet tell me. I will buy you a drink.
-</div>
 
         </div>
         <div id="footer">

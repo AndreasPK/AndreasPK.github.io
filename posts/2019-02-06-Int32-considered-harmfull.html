@@ -3,7 +3,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>Andreas Klebingers Blog - 2019-02-06-Int32-considered-harmfull</title>
+        <title>Andreas Klebingers Blog - Sized Int/Word variants considered Harmful.</title>
         <link rel="stylesheet" type="text/css" href="../css/default.css" />
         <link rel="stylesheet" type="text/css" href="../css/custom.css" />
         <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
@@ -25,31 +25,19 @@
 
 
         <div id="content">
-            <h1>2019-02-06-Int32-considered-harmfull</h1>
+            <h1>Sized Int/Word variants considered Harmful.</h1>
 
             <div class="info">
     Posted on February  6, 2019
     
 </div>
 
-<header id="header">
-<hgroup id="logo">
-<a href="../index.html">Andreas Klebingers Blog</a>
-</hgroup>
-<nav id="navigation"> <a href="../index.html">Home</a> <a href="../about.html">About</a> <a href="../work.html">Work with me</a> <a href="../archive.html">Archive</a> <a href="../ghc-week.html">GHC Week!</a> </nav>
-</header>
-<div id="content">
-<h1 id="sized-intword-variants-considered-harmful.">Sized Int/Word variants considered Harmful.</h1>
-<div class="info">
-Posted on February 6, 2019
-</div>
 <p>Most users are probably aware of the sized Int/Word variants from <code>Data.Int</code> and <code>Data.Word</code>.<br />
 However there are some pitfulls associated using them in places where we could use regular Int.</p>
 <p>We will take a look at the <a href="https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Int.html#t:Int8">Int ones</a> but this will apply for sized Word types as well.</p>
 <h1 id="why-i-consider-the-sized-variants-harmful">Why I consider the sized variants harmful</h1>
 <h2 id="pitfall-1-they-take-up-at-least-as-much-space-as-int-does">Pitfall #1: They take up at least as much space as Int does</h2>
 <p>One might be tempted to change some code to Int8, expecting this to safe memory. However if we look at the actual implementation it becomes clear Int8/Int take up the same amount of memory.</p>
-<div id="cb1" class="sourceCode">
 <div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="co">------------------------------------------------------------------------</span></a>
 <a class="sourceLine" id="cb1-2" title="2"><span class="co">-- type Int8</span></a>
 <a class="sourceLine" id="cb1-3" title="3"><span class="co">------------------------------------------------------------------------</span></a>
@@ -59,7 +47,6 @@ However there are some pitfulls associated using them in places where we could u
 <a class="sourceLine" id="cb1-7" title="7"></a>
 <a class="sourceLine" id="cb1-8" title="8"><span class="kw">data</span> <span class="ot">{-# CTYPE &quot;HsInt8&quot; #-}</span> <span class="dt">Int8</span> <span class="ot">=</span> <span class="dt">I8</span><span class="op">#</span> <span class="dt">Int</span><span class="op">#</span></a>
 <a class="sourceLine" id="cb1-9" title="9"><span class="co">-- ^ 8-bit signed integer type</span></a></code></pre></div>
-</div>
 <p>Int# stands for unboxed Integer values with 32 or 64bit depending on the machine.<br />
 So each Int8 takes two words. One for the constructor and one for the actual value. Same as regular Int.</p>
 <h2 id="pitfall-2-they-generate-worse-code">Pitfall #2: They generate worse code</h2>
@@ -83,31 +70,23 @@ They are backed by a bytearray so in theses cases the small variants actually ta
 <h1 id="how-bad-can-it-be">How bad can it be?</h1>
 <p>As a showcase you can take the code below and run it.</p>
 <p>I’ve defined IT once as <code>Int8</code> and once as <code>Int</code> and the runtime difference is about 30% on my machine. I did however NOT check how much of that comes from missing rules and how much from the overhead of zeroing.</p>
-<div id="cb2" class="sourceCode">
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="kw">import</span> <span class="dt">GHC.Exts</span></a>
-<a class="sourceLine" id="cb2-2" title="2"><span class="kw">import</span> <span class="dt">Data.Int</span></a>
-<a class="sourceLine" id="cb2-3" title="3"><span class="kw">import</span> <span class="dt">System.Environment</span></a>
-<a class="sourceLine" id="cb2-4" title="4"></a>
-<a class="sourceLine" id="cb2-5" title="5"><span class="kw">type</span> <span class="dt">IT</span> <span class="ot">=</span> <span class="dt">Int</span></a>
-<a class="sourceLine" id="cb2-6" title="6"></a>
-<a class="sourceLine" id="cb2-7" title="7"><span class="ot">foo ::</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span></a>
-<a class="sourceLine" id="cb2-8" title="8">foo x y z <span class="ot">=</span> x <span class="op">+</span> y <span class="op">+</span> z</a>
-<a class="sourceLine" id="cb2-9" title="9"></a>
-<a class="sourceLine" id="cb2-10" title="10"><span class="ot">times ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> [<span class="dt">IT</span>] <span class="ot">-&gt;</span> [<span class="dt">IT</span>]</a>
-<a class="sourceLine" id="cb2-11" title="11">times n xs <span class="ot">=</span> <span class="fu">concat</span> <span class="op">$</span> <span class="fu">replicate</span> n xs</a>
-<a class="sourceLine" id="cb2-12" title="12"></a>
-<a class="sourceLine" id="cb2-13" title="13">main <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb2-14" title="14">  <span class="fu">print</span> <span class="op">$</span> <span class="fu">sum</span> <span class="op">$</span> <span class="fu">map</span> (\(x,y,z) <span class="ot">-&gt;</span> foo x y z) [(x,y,z) <span class="op">|</span> x <span class="ot">&lt;-</span> <span class="dv">10</span> <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]</a>
-<a class="sourceLine" id="cb2-15" title="15">                                            , y <span class="ot">&lt;-</span> <span class="dv">10</span> <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]</a>
-<a class="sourceLine" id="cb2-16" title="16">                                            , z <span class="ot">&lt;-</span> <span class="dv">1</span>  <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]]</a></code></pre></div>
-</div>
-</div>
-<div id="footer">
-
-</div>
-<div style="display: none">
-If you found this and we meet tell me. I will buy you a drink.
-</div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"></a>
+<a class="sourceLine" id="cb2-2" title="2"><span class="kw">import</span> <span class="dt">GHC.Exts</span></a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="kw">import</span> <span class="dt">Data.Int</span></a>
+<a class="sourceLine" id="cb2-4" title="4"><span class="kw">import</span> <span class="dt">System.Environment</span></a>
+<a class="sourceLine" id="cb2-5" title="5"></a>
+<a class="sourceLine" id="cb2-6" title="6"><span class="kw">type</span> <span class="dt">IT</span> <span class="ot">=</span> <span class="dt">Int</span></a>
+<a class="sourceLine" id="cb2-7" title="7"></a>
+<a class="sourceLine" id="cb2-8" title="8"><span class="ot">foo ::</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span> <span class="ot">-&gt;</span> <span class="dt">IT</span></a>
+<a class="sourceLine" id="cb2-9" title="9">foo x y z <span class="ot">=</span> x <span class="op">+</span> y <span class="op">+</span> z</a>
+<a class="sourceLine" id="cb2-10" title="10"></a>
+<a class="sourceLine" id="cb2-11" title="11"><span class="ot">times ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> [<span class="dt">IT</span>] <span class="ot">-&gt;</span> [<span class="dt">IT</span>]</a>
+<a class="sourceLine" id="cb2-12" title="12">times n xs <span class="ot">=</span> <span class="fu">concat</span> <span class="op">$</span> <span class="fu">replicate</span> n xs</a>
+<a class="sourceLine" id="cb2-13" title="13"></a>
+<a class="sourceLine" id="cb2-14" title="14">main <span class="ot">=</span> <span class="kw">do</span></a>
+<a class="sourceLine" id="cb2-15" title="15">  <span class="fu">print</span> <span class="op">$</span> <span class="fu">sum</span> <span class="op">$</span> <span class="fu">map</span> (\(x,y,z) <span class="ot">-&gt;</span> foo x y z) [(x,y,z) <span class="op">|</span> x <span class="ot">&lt;-</span> <span class="dv">10</span> <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]</a>
+<a class="sourceLine" id="cb2-16" title="16">                                            , y <span class="ot">&lt;-</span> <span class="dv">10</span> <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]</a>
+<a class="sourceLine" id="cb2-17" title="17">                                            , z <span class="ot">&lt;-</span> <span class="dv">1</span>  <span class="ot">`times`</span> [<span class="dv">0</span><span class="op">..</span><span class="dv">127</span>]]</a></code></pre></div>
 
         </div>
         <div id="footer">
