@@ -32,127 +32,149 @@
     
 </div>
 
-<p>This is a post about how I reduced the size of interface files by about 20% with one easy trick.</p>
+<p>This is a post about how I reduced the size of interface files by
+about 20% with one easy trick.</p>
 <h2 id="interface-files-binary">Interface files &amp; Binary</h2>
-<p>GHC uses it’s own Binary class to serialize values for a hand full of reasons. The instances of the class in turn are used to write out <code>.hi</code> (interface) files.</p>
-<p><code>.hi</code> files are read for each imported Module. They expose information about already compiled modules to GHC like definitions for inlining or calling conventions.</p>
-<p>Since each compiled Module results in at least one such a file there are plenty of them to go around. While looking at parts of their implementation recently I noticed that the Integer encoding was questionable.<br />
-So I <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1536">changed</a> the implementation away from UTF32-Strings to something more sensible.<br />
+<p>GHC uses it’s own Binary class to serialize values for a hand full of reasons.
+The instances of the class in turn are used to write out <code>.hi</code> (interface) files.</p>
+<p><code>.hi</code> files are read for each imported Module.
+They expose information about already compiled modules to GHC
+like definitions for inlining or calling conventions.</p>
+<p>Since each compiled Module results in at least one such a file there are plenty
+of them to go around. While looking at parts of their implementation recently
+I noticed that the Integer encoding was questionable.<br />
+So I <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1536">changed</a> the implementation
+away from UTF32-Strings to something more sensible.<br />
 Instead now we store the number of bytes, followed by the actual bytes which is a decent improvement.</p>
 <p>As a follow up I looked at implementing something <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1577">similar</a> for Int[64/32/16] using <a href="https://en.wikipedia.org/wiki/LEB128">LEB128</a>.</p>
 <h2 id="what-is-leb128">What is LEB128</h2>
 <p>It’s a variable length encoding for numbers.<br />
 This means if our number will fit in 7 bits, we use at most a byte in our data stream.</p>
-<p>The basic principle is that in each byte: * We use 7 bits for data * One mark bit indicating if we need to read more data</p>
-<p>While 1/8th overhead might seem like a lot in practice most numbers, even for Int64, are small values. In fact zero is the most common number.</p>
-<p>So while the worst case is worse (10 bytes for Int64) on average we save a lot of space. For small values we save a whole 7 out of 8 bytes!</p>
+<p>The basic principle is that in each byte:
+* We use 7 bits for data
+* One mark bit indicating if we need to read more data</p>
+<p>While 1/8th overhead might seem like a lot in practice most numbers,
+even for Int64, are small values. In fact zero is the most common number.</p>
+<p>So while the worst case is worse (10 bytes for Int64) on average we
+save a lot of space. For small values we save a whole 7 out of 8 bytes!</p>
 <h2 id="the-implementation">The implementation</h2>
 <p>There are two versions of LEB128, signed and unsigned.<br />
-These are straight forward translations from the algorithm given on wikipedia, and are not yet very optimized, although the code below seems to be reasonably efficient.</p>
+These are straight forward translations from the algorithm given on wikipedia,
+and are not yet very optimized, although the code below seems to be reasonably
+efficient.</p>
 <h3 id="unsigned">Unsigned</h3>
 <p>The unsigned one is rather straight forward:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">putULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
-<a class="sourceLine" id="cb1-2" title="2">putULEB128 bh w <span class="ot">=</span></a>
-<a class="sourceLine" id="cb1-3" title="3"><span class="co">-- #if defined(DEBUG)</span></a>
-<a class="sourceLine" id="cb1-4" title="4">    (<span class="kw">if</span> w <span class="op">&lt;</span> <span class="dv">0</span> <span class="kw">then</span> panic <span class="st">&quot;putULEB128: Signed number&quot;</span> <span class="kw">else</span> <span class="fu">id</span>) <span class="op">$</span></a>
-<a class="sourceLine" id="cb1-5" title="5"><span class="co">-- #endif</span></a>
-<a class="sourceLine" id="cb1-6" title="6">    go w</a>
-<a class="sourceLine" id="cb1-7" title="7">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb1-8" title="8"><span class="ot">    go ::</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
-<a class="sourceLine" id="cb1-9" title="9">    go w</a>
-<a class="sourceLine" id="cb1-10" title="10">      <span class="op">|</span> w <span class="op">&lt;=</span> (<span class="dv">127</span><span class="ot"> ::</span> a)</a>
-<a class="sourceLine" id="cb1-11" title="11">      <span class="ot">=</span> putByte bh (<span class="fu">fromIntegral</span><span class="ot"> w ::</span> <span class="dt">Word8</span>)</a>
-<a class="sourceLine" id="cb1-12" title="12">      <span class="op">|</span> <span class="fu">otherwise</span> <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb1-13" title="13">        <span class="co">-- bit 7 (8th bit) indicates more to come.</span></a>
-<a class="sourceLine" id="cb1-14" title="14">        <span class="kw">let</span> byte <span class="ot">=</span> setBit (<span class="fu">fromIntegral</span> w) <span class="dv">7</span><span class="ot"> ::</span> <span class="dt">Word8</span></a>
-<a class="sourceLine" id="cb1-15" title="15">        putByte bh byte</a>
-<a class="sourceLine" id="cb1-16" title="16">        go (w <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span>)</a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ot">putULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>putULEB128 bh w <span class="ot">=</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- #if defined(DEBUG)</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    (<span class="kw">if</span> w <span class="op">&lt;</span> <span class="dv">0</span> <span class="kw">then</span> panic <span class="st">&quot;putULEB128: Signed number&quot;</span> <span class="kw">else</span> <span class="fu">id</span>) <span class="op">$</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- #endif</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    go w</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="ot">    go ::</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    go w</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>      <span class="op">|</span> w <span class="op">&lt;=</span> (<span class="dv">127</span><span class="ot"> ::</span> a)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>      <span class="ot">=</span> putByte bh (<span class="fu">fromIntegral</span><span class="ot"> w ::</span> <span class="dt">Word8</span>)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>      <span class="op">|</span> <span class="fu">otherwise</span> <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- bit 7 (8th bit) indicates more to come.</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> byte <span class="ot">=</span> setBit (<span class="fu">fromIntegral</span> w) <span class="dv">7</span><span class="ot"> ::</span> <span class="dt">Word8</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        putByte bh byte</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        go (w <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span>)</span></code></pre></div>
 <p>We write out values in little endian order. Starting with the least significant bits.</p>
 <p>If we have a value &lt;= 127 we can just write the least significant byte and are done.</p>
-<p>Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have to consume additional data, shift our initial value right by 7 bits and repeat.</p>
+<p>Otherwise we set the 8th bit (which is bit 7) to encode the fact that a reader will have
+to consume additional data, shift our initial value right by 7 bits and repeat.</p>
 <p>Reading works similarly.</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="ot">getULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
-<a class="sourceLine" id="cb2-2" title="2">getULEB128 bh <span class="ot">=</span></a>
-<a class="sourceLine" id="cb2-3" title="3">    go <span class="dv">0</span> <span class="dv">0</span></a>
-<a class="sourceLine" id="cb2-4" title="4">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb2-5" title="5"><span class="ot">    go ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
-<a class="sourceLine" id="cb2-6" title="6">    go shift w <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb2-7" title="7">        b <span class="ot">&lt;-</span> getByte bh</a>
-<a class="sourceLine" id="cb2-8" title="8">        <span class="kw">let</span> hasMore <span class="ot">=</span> testBit b <span class="dv">7</span></a>
-<a class="sourceLine" id="cb2-9" title="9">        <span class="kw">let</span> <span class="op">!</span>val <span class="ot">=</span> w <span class="op">.|.</span> ((clearBit (<span class="fu">fromIntegral</span> b) <span class="dv">7</span>) <span class="ot">`unsafeShiftL`</span> shift)<span class="ot"> ::</span> a</a>
-<a class="sourceLine" id="cb2-10" title="10">        <span class="kw">if</span> hasMore</a>
-<a class="sourceLine" id="cb2-11" title="11">            <span class="kw">then</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb2-12" title="12">                go (shift<span class="op">+</span><span class="dv">7</span>) val</a>
-<a class="sourceLine" id="cb2-13" title="13">            <span class="kw">else</span></a>
-<a class="sourceLine" id="cb2-14" title="14">                <span class="fu">return</span> <span class="op">$!</span> val</a></code></pre></div>
-<p>We read a byte, combine it with what we have read already and check the mark bit if we need to read more bytes.</p>
-<p>The only noteworthy thing here is that we are using a little endian encoding so we have to shift bits read later farther to the left. Which we can do by keeping track of the current shift offset - <code>shift</code> in the code above.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ot">getULEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>getULEB128 bh <span class="ot">=</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    go <span class="dv">0</span> <span class="dv">0</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ot">    go ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> a</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    go shift w <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        b <span class="ot">&lt;-</span> getByte bh</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> hasMore <span class="ot">=</span> testBit b <span class="dv">7</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> <span class="op">!</span>val <span class="ot">=</span> w <span class="op">.|.</span> ((clearBit (<span class="fu">fromIntegral</span> b) <span class="dv">7</span>) <span class="ot">`unsafeShiftL`</span> shift)<span class="ot"> ::</span> a</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">if</span> hasMore</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>            <span class="kw">then</span> <span class="kw">do</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>                go (shift<span class="op">+</span><span class="dv">7</span>) val</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>            <span class="kw">else</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>                <span class="fu">return</span> <span class="op">$!</span> val</span></code></pre></div>
+<p>We read a byte, combine it with what we have read already
+and check the mark bit if we need to read more bytes.</p>
+<p>The only noteworthy thing here is that we are using a little endian encoding
+so we have to shift bits read later farther to the left. Which we can do by
+keeping track of the current shift offset - <code>shift</code> in the code above.</p>
 <h3 id="signed-values">Signed values</h3>
 <p>Signed values are slightly tricker because of sign extension.</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1"><span class="co">-- Signed numbers</span></a>
-<a class="sourceLine" id="cb3-2" title="2"><span class="ot">putSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
-<a class="sourceLine" id="cb3-3" title="3">putSLEB128 bh initial <span class="ot">=</span> go initial</a>
-<a class="sourceLine" id="cb3-4" title="4">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb3-5" title="5"><span class="ot">    go ::</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
-<a class="sourceLine" id="cb3-6" title="6">    go val <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb3-7" title="7">        <span class="kw">let</span> byte <span class="ot">=</span> <span class="fu">fromIntegral</span> (clearBit val <span class="dv">7</span>)<span class="ot"> ::</span> <span class="dt">Word8</span></a>
-<a class="sourceLine" id="cb3-8" title="8">        <span class="kw">let</span> val' <span class="ot">=</span> val <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span></a>
-<a class="sourceLine" id="cb3-9" title="9">        <span class="kw">let</span> signBit <span class="ot">=</span> testBit byte <span class="dv">6</span></a>
-<a class="sourceLine" id="cb3-10" title="10">        <span class="kw">let</span> done <span class="ot">=</span></a>
-<a class="sourceLine" id="cb3-11" title="11">                <span class="co">-- Unsigned value, val' == 0 and and last value</span></a>
-<a class="sourceLine" id="cb3-12" title="12">                <span class="co">-- can be discriminated from a negative number.</span></a>
-<a class="sourceLine" id="cb3-13" title="13">                ((val' <span class="op">==</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> <span class="fu">not</span> signBit) <span class="op">||</span></a>
-<a class="sourceLine" id="cb3-14" title="14">                <span class="co">-- Signed value,</span></a>
-<a class="sourceLine" id="cb3-15" title="15">                 (val' <span class="op">==</span> <span class="op">-</span><span class="dv">1</span> <span class="op">&amp;&amp;</span> signBit))</a>
-<a class="sourceLine" id="cb3-16" title="16"></a>
-<a class="sourceLine" id="cb3-17" title="17">        <span class="kw">let</span> byte' <span class="ot">=</span> <span class="kw">if</span> done <span class="kw">then</span> byte <span class="kw">else</span> setBit byte <span class="dv">7</span></a>
-<a class="sourceLine" id="cb3-18" title="18">        putByte bh byte'</a>
-<a class="sourceLine" id="cb3-19" title="19"></a>
-<a class="sourceLine" id="cb3-20" title="20">        unless done <span class="op">$</span> go val'</a></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Signed numbers</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ot">putSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">Bits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>putSLEB128 bh initial <span class="ot">=</span> go initial</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ot">    go ::</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    go val <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> byte <span class="ot">=</span> <span class="fu">fromIntegral</span> (clearBit val <span class="dv">7</span>)<span class="ot"> ::</span> <span class="dt">Word8</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> val' <span class="ot">=</span> val <span class="ot">`unsafeShiftR`</span> <span class="dv">7</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> signBit <span class="ot">=</span> testBit byte <span class="dv">6</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> done <span class="ot">=</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>                <span class="co">-- Unsigned value, val' == 0 and and last value</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>                <span class="co">-- can be discriminated from a negative number.</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>                ((val' <span class="op">==</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> <span class="fu">not</span> signBit) <span class="op">||</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>                <span class="co">-- Signed value,</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>                 (val' <span class="op">==</span> <span class="op">-</span><span class="dv">1</span> <span class="op">&amp;&amp;</span> signBit))</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> byte' <span class="ot">=</span> <span class="kw">if</span> done <span class="kw">then</span> byte <span class="kw">else</span> setBit byte <span class="dv">7</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        putByte bh byte'</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>        unless done <span class="op">$</span> go val'</span></code></pre></div>
 <p>We still write out numbers 7 bits a piece, but our termination condition is different.</p>
 <p>The reason is how negative numbers are <a href="https://en.wikipedia.org/wiki/Two%27s_complement">encoded</a>.</p>
 <p>The main things to keep in mind here are that:</p>
 <ul>
-<li>Shifting a negative value to the right will never cause them to become zero because of sign extension, so we can’t just check for zero. You can convince yourself that this is true with <code>unsafeShiftR (-1) n</code> for any n.</li>
+<li>Shifting a negative value to the right will never cause them to become zero because
+of sign extension, so we can’t just check for zero. You can convince yourself that this is true with <code>unsafeShiftR (-1) n</code> for any n.</li>
 <li>The highest data bit in our encoded data stream will tell the reader the sign of the read value. It will be set for negative numbers and unset otherwise.</li>
 <li>Further there is no negative zero, this means the highest negative number possible is -1 (unlike with floats).</li>
 </ul>
 <p>We can stop writing bytes only if a reader can reconstruct both the value and the sign.</p>
-<p>This means the highest data bit (<code>signBit</code>) written must match the sign of the value, and there are no more data bits to be written. We check for these conditions and assign the value to <code>done</code>.</p>
+<p>This means the highest data bit (<code>signBit</code>) written must match the sign of the value,
+and there are no more data bits to be written. We check for these conditions and assign
+the value to <code>done</code>.</p>
 <p>Reading again the same in reverse.</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1"><span class="ot">getSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</a>
-<a class="sourceLine" id="cb4-2" title="2">getSLEB128 bh <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb4-3" title="3">    (val,shift,signBit) <span class="ot">&lt;-</span> go <span class="dv">0</span> <span class="dv">0</span></a>
-<a class="sourceLine" id="cb4-4" title="4">    <span class="kw">if</span> signBit <span class="op">&amp;&amp;</span> (shift <span class="op">&lt;</span> finiteBitSize val )</a>
-<a class="sourceLine" id="cb4-5" title="5">        <span class="co">-- Manual sign extension</span></a>
-<a class="sourceLine" id="cb4-6" title="6">        <span class="kw">then</span> <span class="fu">return</span> <span class="op">$</span> ((complement <span class="dv">0</span> <span class="ot">`unsafeShiftL`</span> shift) <span class="op">.|.</span> val)</a>
-<a class="sourceLine" id="cb4-7" title="7">        <span class="kw">else</span> <span class="fu">return</span> val</a>
-<a class="sourceLine" id="cb4-8" title="8">    <span class="kw">where</span></a>
-<a class="sourceLine" id="cb4-9" title="9"><span class="ot">        go ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> (a,<span class="dt">Int</span>,<span class="dt">Bool</span>)</a>
-<a class="sourceLine" id="cb4-10" title="10">        go shift val <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb4-11" title="11">            byte <span class="ot">&lt;-</span> getByte bh</a>
-<a class="sourceLine" id="cb4-12" title="12">            <span class="kw">let</span> byteVal <span class="ot">=</span> <span class="fu">fromIntegral</span> (clearBit byte <span class="dv">7</span>)<span class="ot"> ::</span> a</a>
-<a class="sourceLine" id="cb4-13" title="13">            <span class="kw">let</span> <span class="op">!</span>val' <span class="ot">=</span> val <span class="op">.|.</span> (byteVal <span class="ot">`unsafeShiftL`</span> shift)</a>
-<a class="sourceLine" id="cb4-14" title="14">            <span class="kw">let</span> more <span class="ot">=</span> testBit byte <span class="dv">7</span></a>
-<a class="sourceLine" id="cb4-15" title="15">            <span class="kw">let</span> shift' <span class="ot">=</span> shift<span class="op">+</span><span class="dv">7</span></a>
-<a class="sourceLine" id="cb4-16" title="16">            <span class="kw">if</span> more</a>
-<a class="sourceLine" id="cb4-17" title="17">                <span class="kw">then</span> go (shift') val'</a>
-<a class="sourceLine" id="cb4-18" title="18">                <span class="kw">else</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb4-19" title="19">                    <span class="kw">let</span> <span class="op">!</span>signBit <span class="ot">=</span> testBit byte <span class="dv">6</span></a>
-<a class="sourceLine" id="cb4-20" title="20">                    <span class="fu">return</span> (val',shift',signBit)</a></code></pre></div>
-<p>When we read the last byte we check the <code>signBit</code> to reconstruct the sign. If we deal with a negative value we manually <a href="https://en.wikipedia.org/wiki/Sign_extension">sign extend</a> the resulting value properly.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ot">getSLEB128 ::</span> <span class="kw">forall</span> a<span class="op">.</span> (<span class="dt">Integral</span> a, <span class="dt">FiniteBits</span> a) <span class="ot">=&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> a</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>getSLEB128 bh <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    (val,shift,signBit) <span class="ot">&lt;-</span> go <span class="dv">0</span> <span class="dv">0</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">if</span> signBit <span class="op">&amp;&amp;</span> (shift <span class="op">&lt;</span> finiteBitSize val )</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- Manual sign extension</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="kw">then</span> <span class="fu">return</span> <span class="op">$</span> ((complement <span class="dv">0</span> <span class="ot">`unsafeShiftL`</span> shift) <span class="op">.|.</span> val)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">else</span> <span class="fu">return</span> val</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">where</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="ot">        go ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> (a,<span class="dt">Int</span>,<span class="dt">Bool</span>)</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        go shift val <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>            byte <span class="ot">&lt;-</span> getByte bh</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> byteVal <span class="ot">=</span> <span class="fu">fromIntegral</span> (clearBit byte <span class="dv">7</span>)<span class="ot"> ::</span> a</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> <span class="op">!</span>val' <span class="ot">=</span> val <span class="op">.|.</span> (byteVal <span class="ot">`unsafeShiftL`</span> shift)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> more <span class="ot">=</span> testBit byte <span class="dv">7</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> shift' <span class="ot">=</span> shift<span class="op">+</span><span class="dv">7</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>            <span class="kw">if</span> more</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>                <span class="kw">then</span> go (shift') val'</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>                <span class="kw">else</span> <span class="kw">do</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>                    <span class="kw">let</span> <span class="op">!</span>signBit <span class="ot">=</span> testBit byte <span class="dv">6</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>                    <span class="fu">return</span> (val',shift',signBit)</span></code></pre></div>
+<p>When we read the last byte we check the <code>signBit</code> to reconstruct the sign. If we deal with a negative
+value we manually <a href="https://en.wikipedia.org/wiki/Sign_extension">sign extend</a> the resulting value properly.</p>
 <h2 id="applying-the-change-to-ghc">Applying the change to GHC</h2>
 <p>The change itself then isn’t all that much, we just use our functions inside the instances.</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb5-1" title="1"><span class="kw">instance</span> <span class="dt">Binary</span> <span class="dt">Word16</span> <span class="kw">where</span></a>
-<a class="sourceLine" id="cb5-2" title="2">  put_ <span class="ot">=</span> putULEB128</a>
-<a class="sourceLine" id="cb5-3" title="3">  get  <span class="ot">=</span> getULEB128</a>
-<a class="sourceLine" id="cb5-4" title="4"></a>
-<a class="sourceLine" id="cb5-5" title="5"><span class="kw">instance</span> <span class="dt">Binary</span> <span class="dt">Word32</span> <span class="kw">where</span></a>
-<a class="sourceLine" id="cb5-6" title="6">  put_ <span class="ot">=</span> putULEB128</a>
-<a class="sourceLine" id="cb5-7" title="7">  get  <span class="ot">=</span> getULEB128</a>
-<a class="sourceLine" id="cb5-8" title="8"></a>
-<a class="sourceLine" id="cb5-9" title="9"><span class="op">...</span></a></code></pre></div>
-<p>I’ve tested the encodings heavily outside GHC. Primarily because any change to the Binary instances requires a full rebuild, to avoid files persisting which still use the old instances.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">instance</span> <span class="dt">Binary</span> <span class="dt">Word16</span> <span class="kw">where</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  put_ <span class="ot">=</span> putULEB128</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  get  <span class="ot">=</span> getULEB128</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">instance</span> <span class="dt">Binary</span> <span class="dt">Word32</span> <span class="kw">where</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  put_ <span class="ot">=</span> putULEB128</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  get  <span class="ot">=</span> getULEB128</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span></code></pre></div>
+<p>I’ve tested the encodings heavily outside GHC. Primarily because any change to the Binary instances
+requires a full rebuild, to avoid files persisting which still use the old instances.</p>
 <p>However even so I only got a failed build.</p>
 <pre><code>&quot;inplace/bin/ghc-stage1.exe&quot; -optc-Wall -optc-Ilibraries/ghc-prim/dist-install/build/./autogen -optc-Ilibraries/ghc-prim/. -optc-I'E:/ghc_head/rts/dist/build' -optc-I'E:/ghc_head/includes' -optc-I'E:/ghc_head/includes/dist-derivedconstants/header' -optc-Wno-error=inline -optc-Wno-sync-nand -static  -O -H64m -Wall      -this-unit-id ghc-prim-0.6.1 -hide-all-packages -i -ilibraries/ghc-prim/. -ilibraries/ghc-prim/dist-install/build -Ilibraries/ghc-prim/dist-install/build -ilibraries/ghc-prim/dist-install/build/./autogen -Ilibraries/ghc-prim/dist-install/build/./autogen -Ilibraries/ghc-prim/.    -optP-include -optPlibraries/ghc-prim/dist-install/build/./autogen/cabal_macros.h -package-id rts -this-unit-id ghc-prim -XHaskell2010 -O2 -O  -no-user-package-db -rtsopts  -Wno-trustworthy-safe -Wno-deprecated-flags     -Wnoncanonical-monad-instances  -c libraries/ghc-prim/cbits/atomic.c -o libraries/ghc-prim/dist-install/build/cbits/atomic.o
 ghc-stage1.exe: panic! (the 'impossible' happened)
@@ -178,44 +200,50 @@ Please report this as a GHC bug:  https://www.haskell.org/ghc/reportabug
 make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/IntWord64.o] Error 1
 make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/Prim/Ext.o] Error 1
 make: *** [Makefile:128: all] Error 2</code></pre>
-<p>This is a typical error when a Binary instance does not agree on the number of bytes read/written in get/put.</p>
-<p>After a lot of recompilations warming up my room I eventually noticed that using the new encoding works, except when I use it for the Word32 instance.</p>
-<p>So I simply removed the instance and let GHC tell me all the places where it was used.</p>
+<p>This is a typical error when a Binary instance
+does not agree on the number of bytes read/written in get/put.</p>
+<p>After a lot of recompilations warming up my room I eventually noticed that
+using the new encoding works, except when I use it for the Word32 instance.</p>
+<p>So I simply removed the instance and let GHC tell me all the places
+where it was used.</p>
 <h3 id="the-culprit">The culprit</h3>
-<p>Given that roundtripping worked I suspected early on that some usage of the instance relies on it’s encoded size. And indeed while tracking down instance usages eventually I found this use case:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1"><span class="ot">putWithUserData ::</span> <span class="dt">Binary</span> a <span class="ot">=&gt;</span> (<span class="dt">SDoc</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()) <span class="ot">-&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</a>
-<a class="sourceLine" id="cb7-2" title="2">putWithUserData log_action bh payload <span class="ot">=</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb7-3" title="3">    <span class="co">-- Remember where the dictionary pointer will go</span></a>
-<a class="sourceLine" id="cb7-4" title="4">    dict_p_p <span class="ot">&lt;-</span> tellBin bh</a>
-<a class="sourceLine" id="cb7-5" title="5">    <span class="co">-- Placeholder for ptr to dictionary</span></a>
-<a class="sourceLine" id="cb7-6" title="6">    put_ bh dict_p_p</a>
-<a class="sourceLine" id="cb7-7" title="7"></a>
-<a class="sourceLine" id="cb7-8" title="8">    <span class="co">-- Write a lot of data</span></a>
-<a class="sourceLine" id="cb7-9" title="9">    <span class="co">-- ...</span></a>
-<a class="sourceLine" id="cb7-10" title="10">    <span class="co">-- And then ...</span></a>
-<a class="sourceLine" id="cb7-11" title="11"></a>
-<a class="sourceLine" id="cb7-12" title="12">    <span class="co">-- Write the dictionary pointer at the front of the file</span></a>
-<a class="sourceLine" id="cb7-13" title="13">    dict_p <span class="ot">&lt;-</span> tellBin bh          <span class="co">-- This is where the dictionary will start</span></a>
-<a class="sourceLine" id="cb7-14" title="14">    putAt bh dict_p_p dict_p      <span class="co">-- Fill in the placeholder</span></a>
-<a class="sourceLine" id="cb7-15" title="15">    seekBin bh dict_p             <span class="co">-- Seek back to the end of the file</span></a></code></pre></div>
+<p>Given that roundtripping worked I suspected early on that some usage of
+the instance relies on it’s encoded size. And indeed while tracking down
+instance usages eventually I found this use case:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ot">putWithUserData ::</span> <span class="dt">Binary</span> a <span class="ot">=&gt;</span> (<span class="dt">SDoc</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()) <span class="ot">-&gt;</span> <span class="dt">BinHandle</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>putWithUserData log_action bh payload <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Remember where the dictionary pointer will go</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    dict_p_p <span class="ot">&lt;-</span> tellBin bh</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Placeholder for ptr to dictionary</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    put_ bh dict_p_p</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Write a lot of data</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- ...</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- And then ...</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Write the dictionary pointer at the front of the file</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    dict_p <span class="ot">&lt;-</span> tellBin bh          <span class="co">-- This is where the dictionary will start</span></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    putAt bh dict_p_p dict_p      <span class="co">-- Fill in the placeholder</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    seekBin bh dict_p             <span class="co">-- Seek back to the end of the file</span></span></code></pre></div>
 <p>Here <code>dict_p_p</code> was using the Word32 instance.</p>
-<p>The problem is that the placeholder might end up being <strong>smaller</strong> than the actual value. So writing into the reserved spot might (and did) overwrite data following it.</p>
+<p>The problem is that the placeholder might end up being <strong>smaller</strong> than the actual value.
+So writing into the reserved spot might (and did) overwrite data following it.</p>
 <p>For example we might get:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb8-1" title="1">    <span class="co">-- Get position in stream, let's say it's zero.</span></a>
-<a class="sourceLine" id="cb8-2" title="2">    dict_p_p <span class="ot">&lt;-</span> tellBin bh</a>
-<a class="sourceLine" id="cb8-3" title="3">    </a>
-<a class="sourceLine" id="cb8-4" title="4">    <span class="co">-- Write position as single byte 0</span></a>
-<a class="sourceLine" id="cb8-5" title="5">    put_ bh dict_p_p</a>
-<a class="sourceLine" id="cb8-6" title="6">    </a>
-<a class="sourceLine" id="cb8-7" title="7">    <span class="co">-- Write a lot of data</span></a>
-<a class="sourceLine" id="cb8-8" title="8">    <span class="co">-- ...</span></a>
-<a class="sourceLine" id="cb8-9" title="9">    <span class="co">-- And then ...</span></a>
-<a class="sourceLine" id="cb8-10" title="10"></a>
-<a class="sourceLine" id="cb8-11" title="11">    <span class="co">-- Position here might be (in variable length encoding) [0xFF, 0x01]</span></a>
-<a class="sourceLine" id="cb8-12" title="12">    dict_p <span class="ot">&lt;-</span> tellBin bh</a>
-<a class="sourceLine" id="cb8-13" title="13">    <span class="co">-- Will write two bytes into the reserved space,</span></a>
-<a class="sourceLine" id="cb8-14" title="14">    <span class="co">-- but only one byte was reserved above.</span></a>
-<a class="sourceLine" id="cb8-15" title="15">    putAt bh dict_p_p dict_p</a></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Get position in stream, let's say it's zero.</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    dict_p_p <span class="ot">&lt;-</span> tellBin bh</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Write position as single byte 0</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    put_ bh dict_p_p</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Write a lot of data</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- ...</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- And then ...</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Position here might be (in variable length encoding) [0xFF, 0x01]</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    dict_p <span class="ot">&lt;-</span> tellBin bh</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- Will write two bytes into the reserved space,</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- but only one byte was reserved above.</span></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>    putAt bh dict_p_p dict_p</span></code></pre></div>
 <p>So I simple changed the <code>Bin</code> (stream position) instance to write a fixed number of bytes and things worked out.</p>
 <h2 id="results">Results</h2>
 <p>The end result of this is that we save about 20% in interface file size.</p>
@@ -226,7 +254,9 @@ $ ls nofib/spectral/simple/Main.hi -l
 <p>After:</p>
 <pre><code>$ ls nofib/spectral/simple/Main.hi -l
 -rw-r--r-- 1 Andi None 96058 Aug 15 19:42 nofib/spectral/simple/Main.hi</code></pre>
-<p>Although the actual benefit varies depending on the file in question. I’ve seen some with &gt;25% size reductions and others closer to 10%. But it’s a decent win in all cases.</p>
+<p>Although the actual benefit varies depending on the file in question.
+I’ve seen some with &gt;25% size reductions and others closer to 10%. But
+it’s a decent win in all cases.</p>
 
         </div>
         <div id="footer">

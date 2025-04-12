@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <title>Andreas Klebingers Blog - Unknown functions and their arity.</title>
+        <link rel="stylesheet" type="text/css" href="../css/default.css" />
+        <link rel="stylesheet" type="text/css" href="../css/custom.css" />
+        <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
+
+    </head>
+    <body>
+        <header id="header">
+            <hgroup id="logo">
+                <a href="../index.html">Andreas Klebingers Blog</a>
+            </hgroup>
+            <nav id="navigation">
+                <a href="../index.html">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../work.html">Work with me</a>
+                <a href="../archive.html">Archive</a>
+                <a href="../ghc-week.html">GHC Week!</a>
+            </nav>
+        </header>
+
+
+        <div id="content">
+            <h1>Unknown functions and their arity.</h1>
+
+            <div class="info">
+    Posted on April 12, 2025
+    
+        by Andreas Klebinger
+    
+</div>
+
+<p>In this post I will briefly jot down some thoughts I had while investigating ways to improve
+the performance of unknown function calls.</p>
+<h1 id="the-problem">The Problem</h1>
+<h2 id="what-are-unknown-function-calls.">What are unknown function calls.</h2>
+<p>In GHC a unknown function call is a function call for which the callee is not statically known.</p>
+<p>The prime example for this is the mapping function in <code>map</code>.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span><span class="ot"> ::</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> [a] <span class="ot">-&gt;</span> [b]</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span> _ []     <span class="ot">=</span> []</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">map</span> f (x<span class="op">:</span>xs) <span class="ot">=</span> f x <span class="op">:</span> <span class="fu">map</span> f xs</span></code></pre></div>
+<p>Here the function <code>f</code> is a unknown function, and <code>f x</code> is a unknown function call.
+Since <code>f</code> will only be known at runtime, unless <code>map</code> is inlined.</p>
+<h2 id="the-downsides-of-unknown-function-calls.">The downsides of unknown function calls.</h2>
+<p>We can contrast unknown function calls with similar code performing a known/regular function call
+like the one below to explore the downsides.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ot">foo ::</span> <span class="dt">Int</span><span class="ot">-&gt;</span><span class="dt">Char</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>foo <span class="ot">=</span> <span class="op">...</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ot">mapFoo ::</span> [<span class="dt">Int</span>] <span class="ot">-&gt;</span> [<span class="dt">Char</span>]</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>mapFoo _ []     <span class="ot">=</span> []</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>mapFoo (x<span class="op">:</span>xs) <span class="ot">=</span> foo x <span class="op">:</span> <span class="fu">map</span> xs</span></code></pre></div>
+<ul>
+<li>Looking back at regular definition of map we can see that we don’t have to pass <code>f</code> around as a function argument.</li>
+<li>In the <code>map</code> case the thunk for <code>(map f xs)</code> will have to retain a reference to <code>f</code> requiring slightly more memory usage.</li>
+<li>When generating code for <code>foo x</code> or <code>f x</code> the later can’t inspect the function to determine it’s arity. In fact we can’t even ensure the
+function isn’t something like <code>error "Blah"</code> so we have to (potentially) <em>evaluate</em> f before invoking it. Adding additional runtime
+overhead to each call to f.</li>
+</ul>
+<p>There is nothing much we can do about the first two points without inlining <code>map</code>, so we will not talk about these further.
+But we can try to improve on the third point!</p>
+<h1 id="potential-improvements-kinds-are-calling-conventions">Potential improvements: Kinds Are Calling Conventions</h1>
+<p>The 2020 paper “Kinds Are Calling Conventions” elaborates on ways to track <em>Arity</em> in the type system.
+I don’t remember if the paper already suggested this but we can further also introduce <em>unlifted</em> functions.</p>
+<p>With such an approach we would no longer have to verify the arity of unknown functions calls nor check for thunks
+at runtime. The call <code>f x</code> would be essentially compiled to a straight function call.</p>
+<h2 id="impact-assesment">Impact assesment</h2>
+<p>The paper “Kinds Are Calling Conventions” is sadly rather quiet on the practicality of this approach beyond
+stating that:</p>
+<blockquote>
+<p>“Parts of this work have been implemented already in the Glasgow Haskell Compiler,
+and we intend to further implement the entirety of kinds as calling conventions”</p>
+</blockquote>
+<p>Sadly I don’t think any of the work alluded to there was ever upstreamed.
+And sadly not much has happened in this direction since either that I know of.</p>
+<p>I always found that idea intriguing but before diving into GHC’s type system
+I set out to do some simple tests to check for potential payoff from such work.</p>
+<h2 id="constructing-a-benchmark">Constructing a Benchmark</h2>
+<p>What I <em>really</em> wanted to know is how much there is to gain from such a change in the best case.
+What I came up with is a benchmark where I benchmark a function which:</p>
+<ul>
+<li>Walks over a unlifted strict list.</li>
+<li>Invokes a passed unknown function with each element of the list as argument.</li>
+<li>Returns nothing</li>
+</ul>
+<p>This isn’t too hard to create in haskell.</p>
+<h2 id="the-baseline">The baseline</h2>
+<p>It looks something like this:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="dt">StrictList</span><span class="ot"> ::</span> <span class="dt">Type</span> <span class="ot">-&gt;</span> <span class="dt">UnliftedType</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">StrictList</span> a <span class="ot">=</span> <span class="dt">SNil</span> <span class="op">|</span> <span class="dt">SCons</span> <span class="op">!</span>a <span class="op">!</span>(<span class="dt">StrictList</span> a)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# OPAQUE  applyFunctionOne #-}</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ot">applyFunctionOne ::</span> (<span class="dt">Bool</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()) <span class="ot">-&gt;</span> <span class="dt">StrictList</span> <span class="dt">Bool</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>applyFunctionOne f xs <span class="ot">=</span> go f xs</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">where</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        go _f <span class="dt">SNil</span> <span class="ot">=</span> <span class="fu">pure</span> ()</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        go f (<span class="dt">SCons</span> x xs) <span class="ot">=</span> f x <span class="op">&gt;&gt;</span> go f xs</span></code></pre></div>
+<p>Which we will simply invoke with a function <code>eval_ !_ = pure ()</code> as first argument.</p>
+<p>We could <em>actually</em> map over the list as well, but I’ve refrained from doing that as it
+makes it harder to conjure up the “Kinds are calling convention”-optimized version of this function.</p>
+<h2 id="the-optimized-version">The optimized version</h2>
+<p>Assuming we have spent the 50-200+hours required to adjust GHC’s type system we can assume that
+when generating code for <code>f x</code> we can now look at the <em>type</em> of <code>f</code> to check <code>f</code>s arity and generate optimized code.</p>
+<p>This would then allow us to get rid of both the need to check the arity (it’s in <code>f</code>s type), and to evaluate <code>f</code> (it can now be a unlifted function).
+While we can’t have GHC generate this code for us today, it’s possible to write the expected code directly in GHC’s C-like Cmm language:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>applyFunctionDirect<span class="op">(</span>P_ f<span class="op">,</span> P_ xs<span class="op">)</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    loop<span class="op">:</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        W_ tag<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="co">//case xs of ...</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        tag <span class="op">=</span> xs <span class="op">&amp;</span> <span class="dv">7</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        xs <span class="op">=</span> UNTAG<span class="op">(</span>xs<span class="op">);</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        <span class="co">//Nil</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span><span class="op">(</span>tag <span class="op">==</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> <span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        <span class="co">//Cons</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        <span class="op">}</span> <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>            <span class="co">//let x = head xs</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>            P_ x<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>            x <span class="op">=</span> P_<span class="op">[</span>xs<span class="op">+</span><span class="dv">8</span><span class="op">];</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>            <span class="co">//let xs' = tail xs</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>            xs <span class="op">=</span> P_<span class="op">[</span>xs<span class="op">+</span><span class="dv">16</span><span class="op">];</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>            <span class="co">//(f x), will jump directly to f's code.</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>            call <span class="op">(%</span>GET_ENTRY<span class="op">(</span>UNTAG<span class="op">(</span>f<span class="op">)))</span> <span class="op">(</span>f<span class="op">,</span>x<span class="op">);</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>            <span class="co">//go f xs</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>            <span class="cf">goto</span> loop<span class="op">;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>        <span class="op">}</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>This will take one function of the correct arity, and apply it to all elements of
+the given StrictList without any (redundant) checks. If your not familiar with Cmm don’t
+worry. The details are not <em>that</em> important. They key difference between the optimized and
+unoptimized version is:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode diff"><code class="sourceCode diff"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="st">-call stg_ap_pv_fast(f,x);</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="va">+call (%GET_ENTRY(UNTAG(f))) (f,x);</span></span></code></pre></div>
+<p>In the old (unoptimized) code we would call <code>stg_ap_pv_fast</code>, which in turn would check the
+arity of the function, evaluate it if needed, and then would jump to the code for <code>f</code>.</p>
+<p>In the new version instead we jump to the code for <code>f</code> directly. Allowing us to avoid the indirection via stg_ap_pv_fast and
+the work it does. Nice!</p>
+<h2 id="benchmarking-results">Benchmarking results</h2>
+<p>I’ve put a benchmark checking some cases online on <a href="https://github.com/AndreasPK/ghc-arity-experiment">GitHub</a>.</p>
+<p>There are three kinds of benchmarks:</p>
+<ul>
+<li><code>hs_apply</code> is the function written in Haskell today.</li>
+<li><code>cmm_hslike</code> is a handwritten cmm implementation mirroring what GHC produces today.</li>
+<li><code>cmm_direct</code> is what I expect GHC to produce, given a reasonable implementation of kinds are calling conventions.</li>
+</ul>
+<p>I will just give the results first before discussing them:</p>
+<pre><code>benchmarking apply - Arity 1 Matched/hs_apply
+mean                 6.536 μs   (6.536 μs .. 6.537 μs)
+
+benchmarking apply - Arity 1 Matched/cmm_direct
+mean                 6.570 μs   (6.570 μs .. 6.571 μs)
+
+benchmarking apply - Arity 1 Matched/cmm_hslike
+mean                 7.060 μs   (7.060 μs .. 7.060 μs)
+
+
+benchmarking apply - Arity 3 Matched/hs_apply
+mean                 6.040 μs   (6.039 μs .. 6.040 μs)
+
+benchmarking apply - Arity 3 Matched/cmm_direct
+mean                 5.573 μs   (5.573 μs .. 5.573 μs)
+
+
+benchmarking apply - Arity 10 Matched/hs_apply
+mean                 51.04 μs   (51.03 μs .. 51.06 μs)
+
+benchmarking apply - Arity 10 Matched/cmm_direct
+mean                 11.54 μs   (11.54 μs .. 11.54 μs)</code></pre>
+<h3 id="benchmark-analysis">Benchmark Analysis</h3>
+<p>The performance of unknown function calls for low arities is pretty similar across all versions.
+Most of the difference seems to be due to reasons like code alignment, measuring error and
+other irrelevant factors. For example I’ve observed different versions being the fastest when
+fiddling with the -fproc-alignment flag.</p>
+<p>However once the Arity goes past some point this is <em>drastically</em> different. The optimized version is suddenly
+about 5 times as fast! Let’s explore this further.</p>
+<h4 id="the-low-arity-case">The low arity case</h4>
+<p>I suspect this is because the primary bottleneck in these cases is <em>memory access</em>. And there is no difference in
+the number of memory accesses between those versions.</p>
+<p>This becomes clearer if we look at parts of the code for the function which does the
+arity/evaluatedness checking: <code>stg_ap_pv_fast</code></p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>stg_ap_pv_fast</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span>   W_ info<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    W_ arity<span class="op">;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Function is evaluated and has the right arity?</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>GETTAG<span class="op">(</span>R1<span class="op">)==</span><span class="dv">2</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Simply jump to it!</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>        jump <span class="op">%</span>GET_ENTRY<span class="op">(</span>R1<span class="op">-</span><span class="dv">2</span><span class="op">)</span> <span class="op">[</span>R1<span class="op">,</span>R2<span class="op">]</span> <span class="op">;</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">...</span></span></code></pre></div>
+<p>Assuming we called it with a function of the right arity all it does is some bit twiddling and one conditional
+branch before transfering control to the target function.</p>
+<p>That is not to say there is <em>no</em> benefit. But when the actual work we perform consists of reading a linked list
+from memory the overhead of this sort of indirection will be mostly insignificant.</p>
+<p>It’s imaginable that there are cases where this makes a meaningful difference. Things like applying a unknown function
+to each element of a ByteArray perhaps. However I did not test this yet.</p>
+<h4 id="the-high-arity-case">The high arity case</h4>
+<p>Why are things different for higher arity? GHC comes with pre-built functions for applying unknown <em>functions</em> to a
+known number of <em>arguments</em>. However not all call patterns are covered by such functions. There is no pre-built
+function for applying ten pointers and as such we are short of luck for applying 10 bools.</p>
+<p>GHC will still make this work, but it will do so by building a partial application of some arguments, and
+then applying this partial application to the rest of the arguments. So at runtime you can imagine it looking more like
+this:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> pap <span class="ot">=</span> f x1 x2 x3 x4 x5</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    pap' <span class="ot">=</span> pap x6 x7 x8 x9</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="kw">in</span>  evaluate pap'</span></code></pre></div>
+<p>This adds up to a significant overhead, which we can completely eliminate if we <em>know</em> the arity of the function we
+are about to call. Hence the large difference in performance.</p>
+<h1 id="conclusions">Conclusions?</h1>
+<p>It’s unclear to me if it’s actually worth to implement the ideas from the “Kinds are calling conventions”
+at this point.</p>
+<p>On the one hand it seems clear that for the most common cases GHC already has a way to deal with
+unknown function calls in a reasonable effecient way.</p>
+<p>However once one leaves the trodden path the performance cost of unknown calls can quickly increase.
+And while functions with ten arguments might be rare even something simple like <code>f :: Int# -&gt; Double# -&gt; &lt;result&gt;</code>
+already lacks a pre-built application function and hence would benefit massively from this optimization.</p>
+<p>Additionally tracking arity in types would never come with a runtime cost. So the only thing to worry about is
+a modest overhead in compile time and the complexity of the implementation.</p>
+<p>Last but not least I assume there are other optimizations that could take advantage of this information if it
+were apparent in the types. So I’m not yet discouraged from looking into this further. Although I would have
+hoped for a larger benefit.</p>
+
+        </div>
+        <div id="footer">
+        </div>
+        <div style="display: none">If you found this and we meet tell me. I will buy you a drink.</div>
+    </body>
+</html>

@@ -35,20 +35,24 @@
 <p>This post was inspired by <a href="https://medium.com/permutive/having-your-cake-and-eating-it-9f462bf3f908">this medium blog post</a> and the following <a href="https://www.reddit.com/r/haskell/comments/alnkjh/having_your_cake_and_eating_it_pure_mutable_state/">discussion on reddit</a>.</p>
 <p>There was a lot of discussion about big O performance. But zero numbers, which was sad so here we go.</p>
 <h1 id="recapping-the-nub-function.">Recapping the nub function.</h1>
-<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">nub ::</span> <span class="dt">Eq</span> a <span class="ot">=&gt;</span> [a] <span class="ot">-&gt;</span> [a]</a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ot">nub ::</span> <span class="dt">Eq</span> a <span class="ot">=&gt;</span> [a] <span class="ot">-&gt;</span> [a]</span></code></pre></div>
 <p>It’s really simple. We take a list and remove any duplicates.</p>
-<p>Ideally this is also stable. Meaning if two elements compare as equal we only keep the first one.</p>
-<p>Not all of the implementations play by these rules. Some relax the requirement to keep the first or don’t keep the elements in order at all.</p>
+<p>Ideally this is also stable. Meaning if two elements compare as equal
+we only keep the first one.</p>
+<p>Not all of the implementations play by these rules. Some relax the
+requirement to keep the first or don’t keep the elements in order at all.</p>
 <h1 id="whathow-do-we-benchmark">What/How do we benchmark?</h1>
 <ul>
 <li>We could benchmark <code>Int</code> performance. But that’s boring.</li>
 <li>We could benchmark <code>Text</code> fragments. But they don’t have a <code>Grouping</code> instance.</li>
 <li>So we pretend we never heard of text/bytestring and go with [Char].</li>
 </ul>
-<p>In order to get a bunch of strings I took a ghc dump and split it into words. So the spirit of the code is something like this:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1">bench <span class="fu">words</span> size <span class="ot">=</span></a>
-<a class="sourceLine" id="cb2-2" title="2">  bench <span class="st">&quot;name&quot;</span> <span class="op">$</span> whnf (<span class="fu">length</span> <span class="op">.</span> nub<span class="op">*</span>) (<span class="fu">take</span> size <span class="fu">words</span>)</a></code></pre></div>
-<p><code>length</code> is only there to make sure we have evaluated the whole structure of the list. This avoids the overhead of nf which would be traversing all strings completely which would only distort the results.</p>
+<p>In order to get a bunch of strings I took a ghc dump and split it into words.
+So the spirit of the code is something like this:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>bench <span class="fu">words</span> size <span class="ot">=</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  bench <span class="st">&quot;name&quot;</span> <span class="op">$</span> whnf (<span class="fu">length</span> <span class="op">.</span> nub<span class="op">*</span>) (<span class="fu">take</span> size <span class="fu">words</span>)</span></code></pre></div>
+<p><code>length</code> is only there to make sure we have evaluated the whole structure of the list.
+This avoids the overhead of nf which would be traversing all strings completely which would only distort the results.</p>
 <p>I also skipped length in one variant to check the performance in the case of laziness, but it’s not that interesting.</p>
 <h1 id="which-nub-variants-are-we-looking-at.">Which nub* variants are we looking at.</h1>
 <h2 id="base---data.list.nub">base - Data.List.nub</h2>
@@ -62,14 +66,16 @@
 - TERRIBLE for large lists
 - O(n^2) runtime</code></pre>
 <h2 id="containers---data.containers.listutils.nubord">containers - Data.Containers.ListUtils.nubOrd</h2>
-<p>Instead of using a list to keep track of seen elements it uses a Set. This means lookup only takes <code>log(n)</code> time instead of <code>n</code> making it a lot better.</p>
+<p>Instead of using a list to keep track of seen elements it uses a Set.
+This means lookup only takes <code>log(n)</code> time instead of <code>n</code> making it a lot better.</p>
 <pre><code>+ Lazy
 + Only Ord required
 + Stable
 + Still fairly general
 + Decent performance</code></pre>
 <h2 id="st-based-hashing-variant-from-the-blog-post.">ST-Based hashing variant from the blog post.</h2>
-<p>Instead of using a list of seen elements it builds up a hashmap which then gets collapsed into a list.</p>
+<p>Instead of using a list of seen elements it builds up a hashmap
+which then gets collapsed into a list.</p>
 <p>The version of gspia is slightly faster but has the same advantages/disadvantages.</p>
 <pre><code>+ Faster than regular nub
 - Strict
@@ -77,12 +83,15 @@
 - Disregards element order completely, `(nubSpence [&quot;ZZZ&quot;,&quot;z&quot;] == [&quot;z&quot;,&quot;ZZZ&quot;])`</code></pre>
 <h3 id="data.discriminators">Data.Discriminators</h3>
 <p>In a true edwardkmett fashin it’s very interesting and very undocumented.</p>
-<p>He made some <a href="https://www.reddit.com/r/haskell/comments/3brce1/why_does_sort_in_datadiscrimination_claim_to_be_on/">comments here</a> explaining how it works.</p>
-<p>I expect that it would perform well for something like Int. But for this case the runtimes where beyond disappointing.</p>
+<p>He made some <a href="https://www.reddit.com/r/haskell/comments/3brce1/why_does_sort_in_datadiscrimination_claim_to_be_on/">comments here</a> explaining
+how it works.</p>
+<p>I expect that it would perform well for something like Int.
+But for this case the runtimes where beyond disappointing.</p>
 <pre><code>- Requires a `Grouping` instance which isn't common. Eg `Text` doesn't have one.
 - Seems to suffer from very high constants for the case tested (String).</code></pre>
 <h3 id="relude-functions">Relude functions</h3>
-<p>A comment on reddit pointed out that relude contains a variety of n*log(n) nub functions. The benchmark included:</p>
+<p>A comment on reddit pointed out that relude contains a variety of n*log(n)
+nub functions. The benchmark included:</p>
 <ul>
 <li>Stable hash backed variant</li>
 <li><code>ordNub</code> - essentially the containers variant</li>
@@ -98,12 +107,20 @@
 <li>Ord instances are easy to come by</li>
 <li>You likely won’t get around using <code>containers</code> anyway</li>
 </ul>
-<p>Contraindications: * Your lists are Int. I’m sure there are better implementations for [Int], eg <a href="https://hoogle.haskell.org/?hoogle=nubInt">nubInt</a>. * You already have hashable instances. The hash based ones are slightly worse for smallish lists but otherwise better. * All your lists are &lt;20 elements: Just us regular nub. * All your lists are &gt; 500 elements, AND you will evaluate the whole list: Might be worth the trouble to write a hashable instance.</p>
+<p>Contraindications:
+* Your lists are Int. I’m sure there are better implementations for [Int], eg <a href="https://hoogle.haskell.org/?hoogle=nubInt">nubInt</a>.
+* You already have hashable instances. The hash based ones are slightly worse for smallish lists but otherwise better.
+* All your lists are &lt;20 elements: Just us regular nub.
+* All your lists are &gt; 500 elements, AND you will evaluate the whole list: Might be worth the trouble to write a hashable instance.</p>
 <h2 id="use-a-hash-based-version-for-long-hashable-lists.">Use a hash based version for long hashable lists.</h2>
-<p>After about 500-1k elements these became generally faster than the ord based ones. The largest difference I saw was a factor of about 2. Which is a lot, but depending on your code this might still be acceptable when compared to implementing hashable/additional code.</p>
-<p>/u/theindigamer on reddit pointed out that deriving Hashable is another good way to make this more attractive.</p>
+<p>After about 500-1k elements these became generally faster than the ord based ones.
+The largest difference I saw was a factor of about 2. Which is a lot, but depending on your code
+this might still be acceptable when compared to implementing hashable/additional code.</p>
+<p>/u/theindigamer on reddit pointed out that deriving Hashable is another good way
+to make this more attractive.</p>
 <h2 id="other-bits">Other bits</h2>
-<p>I would have expected <code>Data.Discrimination.nub</code> to do better. Maybe I did something wrong. Maybe the constants are just pretty high for this usecase.</p>
+<p>I would have expected <code>Data.Discrimination.nub</code> to do better. Maybe I did something wrong.
+Maybe the constants are just pretty high for this usecase.</p>
 <p>I did NOT check how these perform in combination with list fusion, so that might matter for some code as well.</p>
 <ul>
 <li><code>Data.List.nub</code> outperformed all others till about 20 elements.</li>

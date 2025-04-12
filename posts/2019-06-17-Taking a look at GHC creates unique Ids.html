@@ -33,65 +33,77 @@
 </div>
 
 <p>This post looks at <code>one of the most hammered bits in the whole compiler</code>, namely GHC’s unique supply.</p>
-<p>GHC requires a steady supply of unique identifiers for various reasons. There is nothing special about this. But I found the implementation quite interesting especially given how critical it is for the compiler.</p>
+<p>GHC requires a steady supply of unique identifiers for various reasons.
+There is nothing special about this. But I found the implementation quite interesting especially given how
+critical it is for the compiler.</p>
 <p>I also found a performance issue with the code while writing this post so hurray for that.</p>
 <h1 id="the-uniqsupply-type">The UniqSupply type</h1>
-<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"></a>
-<a class="sourceLine" id="cb1-2" title="2"><span class="co">-- | Unique Supply</span></a>
-<a class="sourceLine" id="cb1-3" title="3"><span class="co">--</span></a>
-<a class="sourceLine" id="cb1-4" title="4"><span class="co">-- A value of type 'UniqSupply' is unique, and it can</span></a>
-<a class="sourceLine" id="cb1-5" title="5"><span class="co">-- supply /one/ distinct 'Unique'.  Also, from the supply, one can</span></a>
-<a class="sourceLine" id="cb1-6" title="6"><span class="co">-- also manufacture an arbitrary number of further 'UniqueSupply' values,</span></a>
-<a class="sourceLine" id="cb1-7" title="7"><span class="co">-- which will be distinct from the first and from all others.</span></a>
-<a class="sourceLine" id="cb1-8" title="8"><span class="kw">data</span> <span class="dt">UniqSupply</span></a>
-<a class="sourceLine" id="cb1-9" title="9">  <span class="ot">=</span> <span class="dt">MkSplitUniqSupply</span> <span class="ot">{-# UNPACK #-}</span> <span class="op">!</span><span class="dt">Int</span> <span class="co">-- make the Unique with this</span></a>
-<a class="sourceLine" id="cb1-10" title="10">                   <span class="dt">UniqSupply</span> <span class="dt">UniqSupply</span></a>
-<a class="sourceLine" id="cb1-11" title="11">                                <span class="co">-- when split =&gt; these two supplies</span></a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- | Unique Supply</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">--</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">-- A value of type 'UniqSupply' is unique, and it can</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- supply /one/ distinct 'Unique'.  Also, from the supply, one can</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">-- also manufacture an arbitrary number of further 'UniqueSupply' values,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">-- which will be distinct from the first and from all others.</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">UniqSupply</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> <span class="dt">MkSplitUniqSupply</span> <span class="ot">{-# UNPACK #-}</span> <span class="op">!</span><span class="dt">Int</span> <span class="co">-- make the Unique with this</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">UniqSupply</span> <span class="dt">UniqSupply</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>                                <span class="co">-- when split =&gt; these two supplies</span></span></code></pre></div>
 <h1 id="making-use-of-the-supply">Making use of the supply</h1>
-<p>The principle seems easy. This being Haskell we have an infinite Tree, with each node containing one unique. The reason for using a Tree over a list is simple, it allows us to pass a supply into pure functions without them ever needing to return their final supply.</p>
-<p>Taking uniques and splitting the supply when we need to pass one into a function is done with these two functions and a small growth of utility wrappers around them.</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1">takeUniqFromSupply (<span class="dt">MkSplitUniqSupply</span> n s1 _) <span class="ot">=</span> (mkUniqueGrimily n, s1)</a>
-<a class="sourceLine" id="cb2-2" title="2">splitUniqSupply (<span class="dt">MkSplitUniqSupply</span> _ s1 s2) <span class="ot">=</span> (s1, s2)</a></code></pre></div>
-<p><code>mkUniqueGrimily</code> here just wraps the actual Int in a newtype. This is useful to avoid mixing the two, which would lead to more nondeterminism.</p>
-<p>There is one issue here. With the unique space limited to the Int range how exactly can we make sure both leaves of the tree get different numbers?</p>
+<p>The principle seems easy. This being Haskell we have an infinite Tree, with
+each node containing one unique.
+The reason for using a Tree over a list is simple, it allows us to pass a supply
+into pure functions without them ever needing to return their final supply.</p>
+<p>Taking uniques and splitting the supply when we need to pass one into a function
+is done with these two functions and a small growth of utility wrappers around them.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>takeUniqFromSupply (<span class="dt">MkSplitUniqSupply</span> n s1 _) <span class="ot">=</span> (mkUniqueGrimily n, s1)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>splitUniqSupply (<span class="dt">MkSplitUniqSupply</span> _ s1 s2) <span class="ot">=</span> (s1, s2)</span></code></pre></div>
+<p><code>mkUniqueGrimily</code> here just wraps the actual Int in a newtype.
+This is useful to avoid mixing the two, which would lead to more nondeterminism.</p>
+<p>There is one issue here. With the unique space limited to the Int range how exactly
+can we make sure both leaves of the tree get different numbers?</p>
 <p>We could use up one bit per split to achieve this but we would run out of bits rather fast that way.</p>
-<p>So if we don’t want to half the available uniques with each split how exactly are we generating our “infinite” data structure?</p>
+<p>So if we don’t want to half the available uniques with each split how exactly
+are we generating our “infinite” data structure?</p>
 <h1 id="oh-no---io-generating-the-magic-uniq-supply">Oh no - IO: Generating the magic Uniq Supply</h1>
 <p>Here is the code:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1"><span class="ot">mkSplitUniqSupply ::</span> <span class="dt">Char</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">UniqSupply</span></a>
-<a class="sourceLine" id="cb3-2" title="2"><span class="co">-- ^ Create a unique supply out of thin air. The character given must</span></a>
-<a class="sourceLine" id="cb3-3" title="3"><span class="co">-- be distinct from those of all calls to this function in the compiler</span></a>
-<a class="sourceLine" id="cb3-4" title="4"><span class="co">-- for the values generated to be truly unique.</span></a>
-<a class="sourceLine" id="cb3-5" title="5">mkSplitUniqSupply c</a>
-<a class="sourceLine" id="cb3-6" title="6">  <span class="ot">=</span> <span class="kw">case</span> <span class="fu">ord</span> c <span class="ot">`shiftL`</span> uNIQUE_BITS <span class="kw">of</span></a>
-<a class="sourceLine" id="cb3-7" title="7">     mask <span class="ot">-&gt;</span> <span class="kw">let</span></a>
-<a class="sourceLine" id="cb3-8" title="8">        <span class="co">-- here comes THE MAGIC:</span></a>
-<a class="sourceLine" id="cb3-9" title="9"></a>
-<a class="sourceLine" id="cb3-10" title="10">        <span class="co">-- This is one of the most hammered bits in the whole compiler</span></a>
-<a class="sourceLine" id="cb3-11" title="11"><span class="ot">        mk_supply ::</span> <span class="dt">IO</span> <span class="dt">UniqSupply</span></a>
-<a class="sourceLine" id="cb3-12" title="12">        mk_supply</a>
-<a class="sourceLine" id="cb3-13" title="13">          <span class="co">-- NB: Use unsafeInterleaveIO for thread-safety.</span></a>
-<a class="sourceLine" id="cb3-14" title="14">          <span class="ot">=</span> unsafeInterleaveIO (</a>
-<a class="sourceLine" id="cb3-15" title="15">                genSym      <span class="op">&gt;&gt;=</span> \ u <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb3-16" title="16">                mk_supply   <span class="op">&gt;&gt;=</span> \ s1 <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb3-17" title="17">                mk_supply   <span class="op">&gt;&gt;=</span> \ s2 <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb3-18" title="18">                <span class="fu">return</span> (<span class="dt">MkSplitUniqSupply</span> (mask <span class="op">.|.</span> u) s1 s2)</a>
-<a class="sourceLine" id="cb3-19" title="19">            )</a>
-<a class="sourceLine" id="cb3-20" title="20">       <span class="kw">in</span></a>
-<a class="sourceLine" id="cb3-21" title="21">       mk_supply</a></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ot">mkSplitUniqSupply ::</span> <span class="dt">Char</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">UniqSupply</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">-- ^ Create a unique supply out of thin air. The character given must</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- be distinct from those of all calls to this function in the compiler</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">-- for the values generated to be truly unique.</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>mkSplitUniqSupply c</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> <span class="kw">case</span> <span class="fu">ord</span> c <span class="ot">`shiftL`</span> uNIQUE_BITS <span class="kw">of</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>     mask <span class="ot">-&gt;</span> <span class="kw">let</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- here comes THE MAGIC:</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- This is one of the most hammered bits in the whole compiler</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="ot">        mk_supply ::</span> <span class="dt">IO</span> <span class="dt">UniqSupply</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        mk_supply</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>          <span class="co">-- NB: Use unsafeInterleaveIO for thread-safety.</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>          <span class="ot">=</span> unsafeInterleaveIO (</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>                genSym      <span class="op">&gt;&gt;=</span> \ u <span class="ot">-&gt;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>                mk_supply   <span class="op">&gt;&gt;=</span> \ s1 <span class="ot">-&gt;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>                mk_supply   <span class="op">&gt;&gt;=</span> \ s2 <span class="ot">-&gt;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>                <span class="fu">return</span> (<span class="dt">MkSplitUniqSupply</span> (mask <span class="op">.|.</span> u) s1 s2)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>       <span class="kw">in</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>       mk_supply</span></code></pre></div>
 <p><code>genSym</code> is an IO action which generates a new unique integer each time it’s run, which we will look at later.</p>
 <h2 id="the-boring-parts">The boring parts:</h2>
-<p>The Char argument ends up in the higher order bits for each unique supply and preserved across splits. So we build a mask which gets applied to each unique value using logical or. The character encodes where uniques are generated. For example uniques produced by the native backend will use <code>'n'</code> and so on.</p>
+<p>The Char argument ends up in the higher order bits for each unique supply and preserved across splits.
+So we build a mask which gets applied to each unique value using logical or.
+The character encodes where uniques are generated. For example uniques produced by the native backend will use <code>'n'</code> and so on.</p>
 <h2 id="mk_supply"><code>mk_supply</code></h2>
 <p>The code to generate an uniqe supply is contained in the recursive definition of <code>mk_supply</code>.</p>
 <p>The first which stands out is <code>unsafeInterleaveIO</code>:</p>
 <p><code>unsafeInterleaveIO allows an IO computation to be deferred lazily. When passed a value of type IO a, the IO will only be performed when the value of the a is demanded</code></p>
-<p>If we squint really hard this seems like turning UniqSupply into: <code>MkSplitUniqSupply !Int (IO UniqSupply) (IO UniqSupply)</code>. The IO however is hidden with the power of unsafeInterleaveIO.</p>
+<p>If we squint really hard this seems like turning UniqSupply into: <code>MkSplitUniqSupply !Int (IO UniqSupply) (IO UniqSupply)</code>.
+The IO however is hidden with the power of unsafeInterleaveIO.</p>
 <p>This means whenever we split an UniqSupply and look at the result what we are really doing is running the mk_supply action:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1">      genSym      <span class="op">&gt;&gt;=</span> \ u <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb4-2" title="2">      mk_supply   <span class="op">&gt;&gt;=</span> \ s1 <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb4-3" title="3">      mk_supply   <span class="op">&gt;&gt;=</span> \ s2 <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb4-4" title="4">      <span class="fu">return</span> (<span class="dt">MkSplitUniqSupply</span> (mask <span class="op">.|.</span> u) s1 s2)</a></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>      genSym      <span class="op">&gt;&gt;=</span> \ u <span class="ot">-&gt;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>      mk_supply   <span class="op">&gt;&gt;=</span> \ s1 <span class="ot">-&gt;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>      mk_supply   <span class="op">&gt;&gt;=</span> \ s2 <span class="ot">-&gt;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">return</span> (<span class="dt">MkSplitUniqSupply</span> (mask <span class="op">.|.</span> u) s1 s2)</span></code></pre></div>
 <p>This doesn’t seem too complicated:</p>
 <ul>
 <li>We get a new number from genSym</li>
@@ -101,34 +113,37 @@
 <p>This is quite handy isn’t it!</p>
 <h2 id="gensym">genSym</h2>
 <p><code>genSym</code> is implemented using the C ffi and in fact is very simple:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb5-1" title="1">HsInt genSym(<span class="dt">void</span>) {</a>
-<a class="sourceLine" id="cb5-2" title="2"><span class="pp">#if defined(THREADED_RTS)</span></a>
-<a class="sourceLine" id="cb5-3" title="3">    <span class="cf">if</span> (n_capabilities == <span class="dv">1</span>) {</a>
-<a class="sourceLine" id="cb5-4" title="4">        GenSymCounter = (GenSymCounter + GenSymInc) &amp; UNIQUE_MASK;</a>
-<a class="sourceLine" id="cb5-5" title="5">        checkUniqueRange(GenSymCounter);</a>
-<a class="sourceLine" id="cb5-6" title="6">        <span class="cf">if</span>(GenSymCounter % <span class="dv">100</span> == <span class="dv">0</span>)</a>
-<a class="sourceLine" id="cb5-7" title="7">          printf(<span class="st">&quot;Unique:%ull </span><span class="sc">\n</span><span class="st">&quot;</span>,GenSymCounter);</a>
-<a class="sourceLine" id="cb5-8" title="8">        <span class="cf">return</span> GenSymCounter;</a>
-<a class="sourceLine" id="cb5-9" title="9">    } <span class="cf">else</span> {</a>
-<a class="sourceLine" id="cb5-10" title="10">        HsInt n = atomic_inc((StgWord *)&amp;GenSymCounter, GenSymInc)</a>
-<a class="sourceLine" id="cb5-11" title="11">          &amp; UNIQUE_MASK;</a>
-<a class="sourceLine" id="cb5-12" title="12">        checkUniqueRange(n);</a>
-<a class="sourceLine" id="cb5-13" title="13">        <span class="cf">return</span> n;</a>
-<a class="sourceLine" id="cb5-14" title="14">    }</a>
-<a class="sourceLine" id="cb5-15" title="15"><span class="pp">#else</span></a>
-<a class="sourceLine" id="cb5-16" title="16">    GenSymCounter = (GenSymCounter + GenSymInc) &amp; UNIQUE_MASK;</a>
-<a class="sourceLine" id="cb5-17" title="17">    checkUniqueRange(GenSymCounter);</a>
-<a class="sourceLine" id="cb5-18" title="18">    <span class="cf">return</span> GenSymCounter;</a>
-<a class="sourceLine" id="cb5-19" title="19"><span class="pp">#endif</span></a>
-<a class="sourceLine" id="cb5-20" title="20">}</a></code></pre></div>
-<p>If we run using a single threaded, either by using the single threaded rts or by checking the numer of threads in use we can use simple addition to increment our unique.</p>
-<p>If we are in a multithreaded environment we have to rely on atomic increment. Otherwise we might get a race condition where two different supplies get assigned the same result.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>HsInt genSym<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#if defined(THREADED_RTS)</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>n_capabilities <span class="op">==</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        GenSymCounter <span class="op">=</span> <span class="op">(</span>GenSymCounter <span class="op">+</span> GenSymInc<span class="op">)</span> <span class="op">&amp;</span> UNIQUE_MASK<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        checkUniqueRange<span class="op">(</span>GenSymCounter<span class="op">);</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span><span class="op">(</span>GenSymCounter <span class="op">%</span> <span class="dv">100</span> <span class="op">==</span> <span class="dv">0</span><span class="op">)</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>          printf<span class="op">(</span><span class="st">&quot;Unique:</span><span class="sc">%u</span><span class="st">ll </span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span>GenSymCounter<span class="op">);</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> GenSymCounter<span class="op">;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span> <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        HsInt n <span class="op">=</span> atomic_inc<span class="op">((</span>StgWord <span class="op">*)&amp;</span>GenSymCounter<span class="op">,</span> GenSymInc<span class="op">)</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>          <span class="op">&amp;</span> UNIQUE_MASK<span class="op">;</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        checkUniqueRange<span class="op">(</span>n<span class="op">);</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> n<span class="op">;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="pp">#else</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    GenSymCounter <span class="op">=</span> <span class="op">(</span>GenSymCounter <span class="op">+</span> GenSymInc<span class="op">)</span> <span class="op">&amp;</span> UNIQUE_MASK<span class="op">;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    checkUniqueRange<span class="op">(</span>GenSymCounter<span class="op">);</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> GenSymCounter<span class="op">;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="pp">#endif</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>If we run using a single threaded, either by using the single threaded rts or
+by checking the numer of threads in use we can use simple addition to increment our unique.</p>
+<p>If we are in a multithreaded environment we have to rely on atomic increment.
+Otherwise we might get a race condition where two different supplies get assigned the same result.</p>
 <h1 id="does-it-make-sense-to-optimize-this-further">Does it make sense to optimize this further?</h1>
 <p>There are always things to improve, but let’s figure out if we should bother:</p>
 <h2 id="some-metrics">Some metrics:</h2>
 <p>We can find out using printf in getSym that GHC generates 170k Uniques for a testfile in 5 seconds.</p>
 <p>This means <strong>34000 Uniques/Second</strong>.</p>
-<p>For a <strong>speedup by 0.1%</strong> we need to shave off ~0.001 seconds. For my notebook running at 2.6GHZ this is <strong>2 600 000 Cycles</strong> or <strong>~75 Cycles per UniqueSupply creating</strong>.</p>
+<p>For a <strong>speedup by 0.1%</strong> we need to shave off ~0.001 seconds. For my notebook running at 2.6GHZ this is <strong>2 600 000 Cycles</strong> or
+<strong>~75 Cycles per UniqueSupply creating</strong>.</p>
 <p>To make sense of this numbers here are some scales for my desktop CPU:</p>
 <ul>
 <li>L1 cache miss: 12 Cycles</li>
@@ -137,11 +152,16 @@
 </ul>
 <h2 id="so-is-it-worth-it-to-try">So is it worth it to try?</h2>
 <p>I don’t think it’s worth to try to optimize the current approach further. It’s pretty much as good as it will get.</p>
-<p>It would take a lot of effort to get it that much faster (if possible at all!). And there are certainly less optimized corners of GHC which would improve things more for less effort.</p>
-<p>It still seems like a lot of work is performed for essentially doing a unique = uniqueCounter++ operation. But it’s not obvious how this could expressed better without resorting to very ugly low level hacks.</p>
+<p>It would take a lot of effort to get it that much faster (if possible at all!).
+And there are certainly less optimized corners of GHC which would improve things more for less effort.</p>
+<p>It still seems like a lot of work is performed for essentially doing a unique = uniqueCounter++ operation.
+But it’s not obvious how this could expressed better without resorting to very ugly low level hacks.</p>
 <h2 id="minor-improvements">Minor improvements:</h2>
-<p>If one looks closely we can see that <code>mask</code> is only demanded when <code>mk_supply</code> is run. However while a call to <code>mkSplitUniqueSupply</code> will return <code>mk_supply</code> as an executable action it might never be run by the caller.</p>
-<p>This means the closure for <code>mk_supply</code> has to capture the Char in order to compute the mask in case it gets run. GHC does also not seem to create a shareable closure for mask, which means if demanded mask will be recomputed for each supply constructor allocated. Quite the waste!</p>
+<p>If one looks closely we can see that <code>mask</code> is only demanded when <code>mk_supply</code> is run. However while a call to <code>mkSplitUniqueSupply</code>
+will return <code>mk_supply</code> as an executable action it might never be run by the caller.</p>
+<p>This means the closure for <code>mk_supply</code> has to capture the Char in order to compute the mask in case it gets run.
+GHC does also not seem to create a shareable closure for mask, which means if demanded mask will be recomputed for each
+supply constructor allocated. Quite the waste!</p>
 <p>The actual fix is just a simple bang. You can find the MR <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/1229#">here</a> if you are interested.</p>
 
         </div>

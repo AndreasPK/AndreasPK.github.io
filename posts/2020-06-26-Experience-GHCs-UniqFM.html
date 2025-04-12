@@ -35,22 +35,25 @@
 </div>
 
 <h1 id="ghc-and-maps-over-uniques">GHC and maps over Uniques</h1>
-<p>GHC uses a <code>Unique</code> type to identify objects. This type is an opaque wrapper over <code>Int</code> which makes it fast and efficient. For Sets/Maps The underlying implementation is provided by IntSet/IntMap which are well optimized.</p>
+<p>GHC uses a <code>Unique</code> type to identify objects. This type is an opaque wrapper over <code>Int</code>
+which makes it fast and efficient. For Sets/Maps The underlying
+implementation is provided by IntSet/IntMap which are well optimized.</p>
 <p>Maps over Uniques currently work something like this:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"></a>
-<a class="sourceLine" id="cb1-2" title="2"><span class="kw">data</span> <span class="dt">UniqM</span> a <span class="ot">=</span> <span class="dt">UniqM</span> (<span class="dt">IntMap</span> a)</a>
-<a class="sourceLine" id="cb1-3" title="3"></a>
-<a class="sourceLine" id="cb1-4" title="4"><span class="fu">lookup</span><span class="ot"> ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> a</a>
-<a class="sourceLine" id="cb1-5" title="5"><span class="ot">insert ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a</a>
-<a class="sourceLine" id="cb1-6" title="6"><span class="ot">toList ::</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> [(<span class="dt">Unique</span>,a)]</a>
-<a class="sourceLine" id="cb1-7" title="7"><span class="op">...</span></a>
-<a class="sourceLine" id="cb1-8" title="8"></a>
-<a class="sourceLine" id="cb1-9" title="9"><span class="fu">lookup</span> key (<span class="dt">UniqM</span> m) <span class="ot">=</span> IM.lookup (keyToInt key) m</a>
-<a class="sourceLine" id="cb1-10" title="10"><span class="op">...</span></a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">UniqM</span> a <span class="ot">=</span> <span class="dt">UniqM</span> (<span class="dt">IntMap</span> a)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">lookup</span><span class="ot"> ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> a</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ot">insert ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> a</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ot">toList ::</span> <span class="dt">UniqM</span> a <span class="ot">-&gt;</span> [(<span class="dt">Unique</span>,a)]</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">lookup</span> key (<span class="dt">UniqM</span> m) <span class="ot">=</span> IM.lookup (keyToInt key) m</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span></code></pre></div>
 <p>This has two big drawbacks:</p>
 <ul>
 <li>It’s not obvious what kind of object is actually intended to be used as key.</li>
-<li>It’s easy to use the wrong key (or map at times!). As maps from <code>Foo -&gt; a</code> have the same type as maps from <code>Bar -&gt; a</code>.</li>
+<li>It’s easy to use the wrong key (or map at times!). As maps from <code>Foo -&gt; a</code> have the
+same type as maps from <code>Bar -&gt; a</code>.</li>
 </ul>
 <p>But it has advantages:</p>
 <ul>
@@ -58,28 +61,30 @@
 <li>It’s as efficient as IntMap</li>
 </ul>
 <p>However problems become appearant when one writes code like this:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="kw">let</span> fooMap <span class="ot">=</span> <span class="op">...</span><span class="ot">                ::</span> <span class="dt">UniqM</span> <span class="dt">Int</span></a>
-<a class="sourceLine" id="cb2-2" title="2">    kfoo   <span class="ot">= actuallyABar       ::</span> <span class="dt">Bar</span></a>
-<a class="sourceLine" id="cb2-3" title="3">    </a>
-<a class="sourceLine" id="cb2-4" title="4">    <span class="co">-- This is *wrong* but will typecheck.</span></a>
-<a class="sourceLine" id="cb2-5" title="5">    thing  <span class="ot">=</span> <span class="fu">lookup</span> kfoo<span class="ot"> fooMap ::</span> <span class="dt">Int</span></a></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> fooMap <span class="ot">=</span> <span class="op">...</span><span class="ot">                ::</span> <span class="dt">UniqM</span> <span class="dt">Int</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    kfoo   <span class="ot">= actuallyABar       ::</span> <span class="dt">Bar</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- This is *wrong* but will typecheck.</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    thing  <span class="ot">=</span> <span class="fu">lookup</span> kfoo<span class="ot"> fooMap ::</span> <span class="dt">Int</span></span></code></pre></div>
 <h2 id="inside-information">Inside Information</h2>
-<p>We can however include the information about the key type in the map type. This is free at runtime! But it makes for a slightly less versatile API:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb3-1" title="1"><span class="kw">type</span> <span class="dt">Unique</span> <span class="ot">=</span> <span class="dt">Int</span></a>
-<a class="sourceLine" id="cb3-2" title="2"></a>
-<a class="sourceLine" id="cb3-3" title="3"><span class="ot">getUnique ::</span> <span class="dt">HasUnique</span> a <span class="ot">=&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Unique</span></a>
-<a class="sourceLine" id="cb3-4" title="4"></a>
-<a class="sourceLine" id="cb3-5" title="5"><span class="kw">data</span> <span class="dt">UniqM</span> key a <span class="ot">=</span> <span class="dt">UniqM</span> (<span class="dt">IntMap</span> a)</a>
-<a class="sourceLine" id="cb3-6" title="6"></a>
-<a class="sourceLine" id="cb3-7" title="7"><span class="fu">lookup</span><span class="ot"> ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> a</a>
-<a class="sourceLine" id="cb3-8" title="8"><span class="ot">insert ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a</a>
-<a class="sourceLine" id="cb3-9" title="9"><span class="ot">toList ::</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> [(<span class="dt">Unique</span>,a)]</a>
-<a class="sourceLine" id="cb3-10" title="10"><span class="op">...</span></a></code></pre></div>
+<p>We can however include the information about the key type in the map type.
+This is free at runtime! But it makes for a slightly less versatile API:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="dt">Unique</span> <span class="ot">=</span> <span class="dt">Int</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ot">getUnique ::</span> <span class="dt">HasUnique</span> a <span class="ot">=&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Unique</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">UniqM</span> key a <span class="ot">=</span> <span class="dt">UniqM</span> (<span class="dt">IntMap</span> a)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="fu">lookup</span><span class="ot"> ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> a</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="ot">insert ::</span> <span class="dt">HasUnique</span> key <span class="ot">=&gt;</span> key <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> <span class="dt">UniqM</span> key a</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="ot">toList ::</span> <span class="dt">UniqM</span> key a <span class="ot">-&gt;</span> [(<span class="dt">Unique</span>,a)]</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span></code></pre></div>
 <p>Now if we were to make the same mistake as above:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1"><span class="kw">let</span> fooMap <span class="ot">=</span> <span class="op">...</span><span class="ot">                ::</span> <span class="dt">UniqM</span> <span class="dt">Foo</span> <span class="dt">Int</span></a>
-<a class="sourceLine" id="cb4-2" title="2">    kfoo   <span class="ot">= actuallyABar       ::</span> <span class="dt">Bar</span></a>
-<a class="sourceLine" id="cb4-3" title="3">    thing  <span class="ot">=</span> <span class="fu">lookup</span> kfoo<span class="ot"> fooMap ::</span> <span class="dt">Int</span></a></code></pre></div>
-<p>The compiler will yell at us. Clearly looking up something with a Bar as key in a Foo keyed map is wrong.<br />
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> fooMap <span class="ot">=</span> <span class="op">...</span><span class="ot">                ::</span> <span class="dt">UniqM</span> <span class="dt">Foo</span> <span class="dt">Int</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    kfoo   <span class="ot">= actuallyABar       ::</span> <span class="dt">Bar</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    thing  <span class="ot">=</span> <span class="fu">lookup</span> kfoo<span class="ot"> fooMap ::</span> <span class="dt">Int</span></span></code></pre></div>
+<p>The compiler will yell at us. Clearly looking up something with a Bar
+as key in a Foo keyed map is wrong.<br />
 The code is clearer, bugs are harder to write. It’s almost all good.</p>
 <h2 id="there-and-back-again">There and Back Again</h2>
 <p>What if for some reason we have code which:</p>
@@ -88,24 +93,44 @@ The code is clearer, bugs are harder to write. It’s almost all good.</p>
 <li>Performs a transformation on the elements</li>
 <li>Then builds a new map from the result</li>
 </ul>
-<p>It’s not clear why <a href="https://gitlab.haskell.org/ghc/ghc/-/issues/18387">one would do so</a> but it happens.</p>
+<p>It’s not clear why <a href="https://gitlab.haskell.org/ghc/ghc/-/issues/18387">one would do so</a>
+but it happens.</p>
 <p>The code below illustrates the principle:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb5-1" title="1"><span class="kw">let</span> xs <span class="ot">=</span> toList<span class="ot"> fooMap    ::</span> [(<span class="dt">Unique</span>,a)]</a>
-<a class="sourceLine" id="cb5-2" title="2">    xs' <span class="ot">=</span> <span class="fu">map</span> (second f)<span class="ot"> xs        ::</span> [(<span class="dt">Unique</span>,a)]</a>
-<a class="sourceLine" id="cb5-3" title="3">    <span class="co">-- This won't type check as Unique != Foo.</span></a>
-<a class="sourceLine" id="cb5-4" title="4">    fooMap <span class="ot">=</span> fromList<span class="ot"> xs' ::</span> <span class="dt">UniqM</span> <span class="dt">Foo</span> <span class="dt">Int</span></a></code></pre></div>
-<p>This typechecked/worked with untyped keys. Clearly only being explicit in the key doesn’t make the code worse. However while the meaning might still be the same it will no longer typecheck. In the process of converting the map to a list we also lost the key type. This is unfortunate.</p>
-<p>As result we need to put in extra work just to satisfy the type checker. Or use a <a href="https://hackage.haskell.org/package/ghc-8.10.1/docs/UniqFM.html#v:listToUFM_Directly">loophole</a> by providing an API which is happy to take a <code>Unique</code> without bothering to check the types of keys.</p>
-<p>An alternative approach would be to make the keys themselves typed with something along the lines of <code>UniqueOf a = UniqueOf Unique</code>. But for GHC this would be a major change with, ideally, zero gains for users. So it’s hard to argue for.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> xs <span class="ot">=</span> toList<span class="ot"> fooMap    ::</span> [(<span class="dt">Unique</span>,a)]</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    xs' <span class="ot">=</span> <span class="fu">map</span> (second f)<span class="ot"> xs        ::</span> [(<span class="dt">Unique</span>,a)]</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- This won't type check as Unique != Foo.</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    fooMap <span class="ot">=</span> fromList<span class="ot"> xs' ::</span> <span class="dt">UniqM</span> <span class="dt">Foo</span> <span class="dt">Int</span></span></code></pre></div>
+<p>This typechecked/worked with untyped keys. Clearly only being explicit
+in the key doesn’t make the code worse. However while the meaning might
+still be the same it will no longer typecheck. In the process of converting
+the map to a list we also lost the key type. This is unfortunate.</p>
+<p>As result we need to put in extra work just to satisfy
+the type checker. Or use a <a href="https://hackage.haskell.org/package/ghc-8.10.1/docs/UniqFM.html#v:listToUFM_Directly">loophole</a>
+by providing an API which is happy to take a <code>Unique</code> without bothering
+to check the types of keys.</p>
+<p>An alternative approach would be to make the keys themselves typed with something along the lines
+of <code>UniqueOf a = UniqueOf Unique</code>. But for GHC this would be a major change with, ideally, zero gains
+for users. So it’s hard to argue for.</p>
 <h2 id="the-name-of-something-is-not-its-own-thing-in-ghc.">The name of something is not it’s own thing in GHC.</h2>
-<p>GHC often uses the same <code>Unique</code> for the <code>Name</code> of a thing and the thing itself. For example variables share a unique with their names.</p>
-<p>Both really refer to the same <em>thing</em> in a sense. But still they are different values with different types. As consequence we have to handle lookups in a <code>UniqM Var Var</code> where both a <code>Name</code> and a <code>Var</code> can be used as key.</p>
-<p>Currently GHC simply has a <code>VarEnv</code> type/module which abstracts over this and provides an API providing both. But internally we just end up using loopholes to avoid the checking of the types to make this work.</p>
+<p>GHC often uses the same <code>Unique</code> for the <code>Name</code> of a thing and
+the thing itself. For example variables share a unique with their names.</p>
+<p>Both really refer to the same <em>thing</em> in a sense. But still they
+are different values with different types. As consequence we have to handle lookups
+in a <code>UniqM Var Var</code> where both a <code>Name</code> and a <code>Var</code> can be used as key.</p>
+<p>Currently GHC simply has a <code>VarEnv</code> type/module which abstracts over this and
+provides an API providing both. But internally we just end up using loopholes
+to avoid the checking of the types to make this work.</p>
 <h1 id="conclusion">Conclusion</h1>
-<p>I think this change is a perfect example for the case of stronger types eliminating certain kinds of bugs. It also does a good job showcasing that this isn’t free. We have to add loopholes to our map API just to keep the existing code working. Or use other approaches which make it harder to express certain constructs.</p>
-<p><a href="https://gitlab.haskell.org/ghc/ghc/-/merge_requests/3577">The change</a> in my opinion makes a lot of code also much clearer.</p>
+<p>I think this change is a perfect example for the case of stronger types eliminating
+certain kinds of bugs.
+It also does a good job showcasing that this isn’t free. We have to add loopholes to our
+map API just to keep the existing code working. Or use other approaches which make it
+harder to express certain constructs.</p>
+<p><a href="https://gitlab.haskell.org/ghc/ghc/-/merge_requests/3577">The change</a> in my opinion makes
+a lot of code also much clearer.</p>
 <p>Sadly this change will also break all plugins who use these types directly. Which is really unfortunate.</p>
-<p>However with code being read much more often than written I still think it’s the right thing to do and worth the cost.</p>
+<p>However with code being read much more often than written I still think it’s the right thing to do and
+worth the cost.</p>
 
         </div>
         <div id="footer">

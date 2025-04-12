@@ -34,21 +34,29 @@
 
 <p>In this post I will summarize the steps required to add a counter which will be used with <a href="https://gitlab.haskell.org/ghc/ghc/wikis/debugging/ticky-ticky"><code>-ticky</code> profiling</a>.</p>
 <p>We will then use this to try and estimate the impact a partial fix for <a href="https://gitlab.haskell.org/ghc/ghc/issues/8905">#8905</a> would have.</p>
-<p>The short summary of the issue is that when GHC checks if a value is already evaluated, it <em>unconditionally</em> sets up the stack for <em>potentially</em> evaluating the value.<br />
-There are good reasons for this, but when dealing with the only argument of a function they do not apply. So we want to estimate the impact of special casing that particular pattern.</p>
+<p>The short summary of the issue is that when GHC checks if a value is already evaluated, it <em>unconditionally</em> sets up the stack for <em>potentially</em> evaluating
+the value.<br />
+There are good reasons for this, but when dealing with the only argument of a function they do not apply. So we want
+to estimate the impact of special casing that particular pattern.</p>
 <h1 id="what-is-ticky-profiling.">What is ticky profiling.</h1>
 <p>It’s a profiling method in which GHC annotates the <strong>optimized</strong> program with runtime counters.</p>
-<p>This means core and stg passes are not affected by the profiling annotations and the final executable will be closer to a release build than the case with <a href="https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/profiling.html">cost center profiling.</a></p>
-<p>The large downside is of course that we don’t get “stacks”. Knowing that <code>myExpensiveFunction</code> was called 5 Billion times is no doubt useful. But even more useful is it if we know that it’s called by <code>thisFunctionWithARedundantBang</code>.</p>
-<p>Despite the drawbacks I still found it quite usefull when investigating performance hotspots in the past. I’ve recently also used it to add custom counters to characterize the possible performance impact of this optimization for a custom branch.</p>
+<p>This means core and stg passes are not affected by the profiling annotations and the final executable will be
+closer to a release build than the case with <a href="https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/profiling.html">cost center profiling.</a></p>
+<p>The large downside is of course that we don’t get “stacks”. Knowing that <code>myExpensiveFunction</code> was called 5 Billion times is no doubt useful.
+But even more useful is it if we know that it’s called by <code>thisFunctionWithARedundantBang</code>.</p>
+<p>Despite the drawbacks I still found it quite usefull when investigating performance hotspots in the past. I’ve recently also
+used it to add custom counters to characterize the possible performance impact of this optimization for a custom branch.</p>
 <p>Either way this post is not about WHAT ticky-ticky is, the wiki has most of the info on that.<br />
 It’s about how we can add new counters!</p>
 <h1 id="adding-the-counter">Adding the counter</h1>
-<p>If you want to add a new ticky counter your first stop should be <a href="https://gitlab.haskell.org/ghc/ghc/blob/master/compiler/codeGen/StgCmmTicky.hs"><code>StgCmmTicky.hs</code></a> which has a helpful comment <code>OVERVIEW: ticky ticky profiling</code>.</p>
+<p>If you want to add a new ticky counter your first stop should be <a href="https://gitlab.haskell.org/ghc/ghc/blob/master/compiler/codeGen/StgCmmTicky.hs"><code>StgCmmTicky.hs</code></a> which has a
+helpful comment <code>OVERVIEW: ticky ticky profiling</code>.</p>
 <p>I won’t reproduce the content here but go give it a skim.</p>
 <h2 id="the-problem">The problem</h2>
-<p>First we need to think of something we want to measure. Ticky works best (or arguably really only when) we want to measure how often a certain code path was taken.</p>
-<p>Let’s say we look at <a href="https://gitlab.haskell.org/ghc/ghc/issues/8905">#8905</a> and wonder if it is worthwhile to solve this problem at least for functions with a single argument.</p>
+<p>First we need to think of something we want to measure. Ticky works best (or arguably really only when) we want to measure how often
+a certain code path was taken.</p>
+<p>Let’s say we look at <a href="https://gitlab.haskell.org/ghc/ghc/issues/8905">#8905</a> and wonder if it is worthwhile to
+solve this problem at least for functions with a single argument.</p>
 <p>So for that we want to figure out how often we actually evaluate a function with a single evaluated argument!</p>
 <h2 id="step-1-adding-a-counter">Step 1: Adding a counter</h2>
 <p>Adding a new ticky counter involves copy pasting a little code in a few places. <code>OVERVIEW: ticky ticky profiling</code> is helpful here as it lists all the use sites for counters.</p>
@@ -57,7 +65,8 @@ It’s about how we can add new counters!</p>
 <li><code>rts/RtsSymbols.c</code> also needs to mention the new counter</li>
 <li><code>rts/Ticky.c</code> needs to print the new counter</li>
 </ul>
-<p>The easiest way to do so is to pick an existing counter, check where it occurs and add your counter in the same places. So we could for example grep for <code>TICK_ENT_VIA_NODE</code>.</p>
+<p>The easiest way to do so is to pick an existing counter, check where it occurs and add your counter in the same places.
+So we could for example grep for <code>TICK_ENT_VIA_NODE</code>.</p>
 <pre><code>Andi@Horzube MINGW64 /e/ghc_head
 $ grep &quot;ENT_VIA_NODE_ctr&quot; . -r -I
 ./compiler/codeGen/StgCmmTicky.hs:tickyEnterViaNode     = ifTicky $ bumpTickyCounter (fsLit &quot;ENT_VIA_NODE_ctr&quot;)
@@ -67,26 +76,28 @@ $ grep &quot;ENT_VIA_NODE_ctr&quot; . -r -I
 ./rts/Ticky.c:        tot_enters - ENT_VIA_NODE_ctr;
 ./rts/Ticky.c:  PR_CTR(ENT_VIA_NODE_ctr);</code></pre>
 <p>First we add the new counter <code>ENT_SINGLE_ARG_ctr</code> to <code>Ticky.h</code>:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb2-1" title="1">...</a>
-<a class="sourceLine" id="cb2-2" title="2">EXTERN StgInt ENT_SINGLE_ARG_ctr INIT(<span class="dv">0</span>);</a>
-<a class="sourceLine" id="cb2-3" title="3">...</a></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>EXTERN StgInt ENT_SINGLE_ARG_ctr INIT<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span></code></pre></div>
 <p>Then <code>RtsSymbols.c</code></p>
 <pre><code>      ...
       SymI_HasProto(ENT_SINGLE_ARG_ctr)                 \
       ...</code></pre>
-<p>We skip <code>Cmm.h</code> as we won’t expose our counter to handwritten Cmm. It’s only temporary. But if you plan to keep the counter around in GHC please also add it there.</p>
+<p>We skip <code>Cmm.h</code> as we won’t expose our counter to handwritten Cmm. It’s only temporary.
+But if you plan to keep the counter around in GHC please also add it there.</p>
 <p>Then <code>StgCmmTicky.hs</code>, don’t forget to also export the definition.</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb4-1" title="1"><span class="ot">tickySingleEvalArg ::</span> <span class="dt">FCode</span> ()</a>
-<a class="sourceLine" id="cb4-2" title="2">tickySingleEvalArg         <span class="ot">=</span> ifTicky <span class="op">$</span> bumpTickyCounter (fsLit <span class="st">&quot;ENT_SINGLE_ARG_ctr&quot;</span>)</a></code></pre></div>
-<p>Important to note is that tickySingleEvalArg bumps a <strong>runtime</strong> counter when the code generated by tickySingleEvalArg is executed.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ot">tickySingleEvalArg ::</span> <span class="dt">FCode</span> ()</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>tickySingleEvalArg         <span class="ot">=</span> ifTicky <span class="op">$</span> bumpTickyCounter (fsLit <span class="st">&quot;ENT_SINGLE_ARG_ctr&quot;</span>)</span></code></pre></div>
+<p>Important to note is that tickySingleEvalArg bumps a <strong>runtime</strong> counter when the code
+generated by tickySingleEvalArg is executed.</p>
 <p>As a last step we want the counter to show up in the output, so we add it also to <code>Ticky.c</code>.</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb5-1" title="1"><span class="dt">void</span></a>
-<a class="sourceLine" id="cb5-2" title="2">PrintTickyInfo(<span class="dt">void</span>)</a>
-<a class="sourceLine" id="cb5-3" title="3">{</a>
-<a class="sourceLine" id="cb5-4" title="4">  ...</a>
-<a class="sourceLine" id="cb5-5" title="5">  <span class="co">//We add it to the end so it's easier to find. But it's not a requirement.</span></a>
-<a class="sourceLine" id="cb5-6" title="6">  PR_CTR(ENT_SINGLE_EVALD_ARG_ctr);</a>
-<a class="sourceLine" id="cb5-7" title="7">}</a></code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>PrintTickyInfo<span class="op">(</span><span class="dt">void</span><span class="op">)</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">...</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">//We add it to the end so it's easier to find. But it's not a requirement.</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  PR_CTR<span class="op">(</span>ENT_SINGLE_EVALD_ARG_ctr<span class="op">);</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
 <h2 id="step-2-actually-using-the-counter">Step 2: Actually using the counter</h2>
 <p>This is also the <a href="https://www.reddit.com/r/restofthefuckingowl/">“Draw the rest of the owl”</a> step.</p>
 <p>Once you found the right place to insert the counter, it’s as simple as adding a call to <code>tickySingleEvalArg</code> in the right place.</p>
@@ -95,46 +106,57 @@ Sadly it’s not quite trivial as we have to figure out where we generate the co
 <h3 id="sidequest-figuring-out-where-to-call-the-ticky-function">Sidequest: Figuring out where to call the ticky function</h3>
 <p>We know we want to modify the generation of entry code for arguments of closures.</p>
 <p>With some digging we can find out that <code>emitEnter</code> is responsible for generating the entry code.<br />
-However neither inside, nor at the callsite of <code>emitEnter</code> we know if we actually enter an argument or a “regular” id.</p>
-<p>However we CAN hack that contextext into GHC. The Cmm codegen is setup as a Statemonad. We emit Cmm code storing it as we go, and carry around a bit of state needed for context. So we add the list of arguments of the current closure to this state:</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb6-1" title="1"><span class="kw">data</span> <span class="dt">CgInfoDownwards</span>        <span class="co">-- information only passed *downwards* by the monad</span></a>
-<a class="sourceLine" id="cb6-2" title="2">  <span class="ot">=</span> <span class="dt">MkCgInfoDown</span> {</a>
-<a class="sourceLine" id="cb6-3" title="3"><span class="ot">        cgd_dflags    ::</span> <span class="dt">DynFlags</span>,</a>
-<a class="sourceLine" id="cb6-4" title="4"><span class="ot">        cgd_mod       ::</span> <span class="dt">Module</span>,            <span class="co">-- Module being compiled</span></a>
-<a class="sourceLine" id="cb6-5" title="5"><span class="ot">        cgd_updfr_off ::</span> <span class="dt">UpdFrameOffset</span>,    <span class="co">-- Size of current update frame</span></a>
-<a class="sourceLine" id="cb6-6" title="6"><span class="ot">        cgd_ticky     ::</span> <span class="dt">CLabel</span>,            <span class="co">-- Current destination for ticky counts</span></a>
-<a class="sourceLine" id="cb6-7" title="7"><span class="ot">        cgd_sequel    ::</span> <span class="dt">Sequel</span>,            <span class="co">-- What to do at end of basic block</span></a>
-<a class="sourceLine" id="cb6-8" title="8"><span class="ot">        cgd_self_loop ::</span> <span class="dt">Maybe</span> <span class="dt">SelfLoopInfo</span>,<span class="co">-- Which tail calls can be compiled</span></a>
-<a class="sourceLine" id="cb6-9" title="9">                                            <span class="co">-- as local jumps? See Note</span></a>
-<a class="sourceLine" id="cb6-10" title="10">                                            <span class="co">-- [Self-recursive tail calls] in</span></a>
-<a class="sourceLine" id="cb6-11" title="11">                                            <span class="co">-- StgCmmExpr</span></a>
-<a class="sourceLine" id="cb6-12" title="12"><span class="ot">        cgd_closure_args ::</span> <span class="dt">Maybe</span> [<span class="dt">NonVoid</span> <span class="dt">Id</span>], <span class="co">-- ^ Arguments to the closure</span></a>
-<a class="sourceLine" id="cb6-13" title="13">                                                <span class="co">-- we are compiling.</span></a>
-<a class="sourceLine" id="cb6-14" title="14"><span class="ot">        cgd_tick_scope::</span> <span class="dt">CmmTickScope</span>       <span class="co">-- Tick scope for new blocks &amp; ticks</span></a>
-<a class="sourceLine" id="cb6-15" title="15">  }</a></code></pre></div>
-<p><code>cgd_closure_args</code> is new and will allow us to figure out if the id we are looking at is an/one of the arguments. We can look at the usage sites of <code>cgd_self_loop</code> for a template of how and where to adjust the state.</p>
-<p>I’ve decided to call <code>tickySingleEvalArg</code> at the call site of emitEnter instead of inside it. The only reason is that inside emiteEnter we only have a Cmm representation of what we enter, so there is no way to compare it to an argument. Even better would be to pass the ID and do it inside, but not worth it for a temporary thing.</p>
+However neither inside, nor at the callsite of <code>emitEnter</code> we know if we actually enter an argument
+or a “regular” id.</p>
+<p>However we CAN hack that contextext into GHC. The Cmm codegen is setup as a Statemonad. We emit Cmm code storing it as we go, and carry around a bit of state
+needed for context. So we add the list of arguments of the current closure to this state:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">CgInfoDownwards</span>        <span class="co">-- information only passed *downwards* by the monad</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> <span class="dt">MkCgInfoDown</span> {</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_dflags    ::</span> <span class="dt">DynFlags</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_mod       ::</span> <span class="dt">Module</span>,            <span class="co">-- Module being compiled</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_updfr_off ::</span> <span class="dt">UpdFrameOffset</span>,    <span class="co">-- Size of current update frame</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_ticky     ::</span> <span class="dt">CLabel</span>,            <span class="co">-- Current destination for ticky counts</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_sequel    ::</span> <span class="dt">Sequel</span>,            <span class="co">-- What to do at end of basic block</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_self_loop ::</span> <span class="dt">Maybe</span> <span class="dt">SelfLoopInfo</span>,<span class="co">-- Which tail calls can be compiled</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>                                            <span class="co">-- as local jumps? See Note</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>                                            <span class="co">-- [Self-recursive tail calls] in</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>                                            <span class="co">-- StgCmmExpr</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_closure_args ::</span> <span class="dt">Maybe</span> [<span class="dt">NonVoid</span> <span class="dt">Id</span>], <span class="co">-- ^ Arguments to the closure</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>                                                <span class="co">-- we are compiling.</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="ot">        cgd_tick_scope::</span> <span class="dt">CmmTickScope</span>       <span class="co">-- Tick scope for new blocks &amp; ticks</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  }</span></code></pre></div>
+<p><code>cgd_closure_args</code> is new and will allow us to figure out if the id we are looking at is an/one of the arguments.
+We can look at the usage sites of <code>cgd_self_loop</code> for a template of how and where to adjust the state.</p>
+<p>I’ve decided to call <code>tickySingleEvalArg</code> at the call site of emitEnter instead of inside it.
+The only reason is that inside emiteEnter we only have a Cmm representation of what we enter,
+so there is no way to compare it to an argument. Even better would be to pass the ID and do it
+inside, but not worth it for a temporary thing.</p>
 <p>The use site inside <code>cgIdApp</code> then looks like this:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1">  <span class="dt">EnterIt</span> <span class="ot">-&gt;</span> <span class="kw">do</span> <span class="dt">MASSERT</span>( <span class="fu">null</span> args )  <span class="co">-- Discarding arguments</span></a>
-<a class="sourceLine" id="cb7-2" title="2">                args <span class="ot">&lt;-</span> getClosureArgs</a>
-<a class="sourceLine" id="cb7-3" title="3">                <span class="kw">let</span> evalSingleArg</a>
-<a class="sourceLine" id="cb7-4" title="4">                    <span class="op">|</span> <span class="dt">Just</span> [arg] <span class="ot">&lt;-</span> args</a>
-<a class="sourceLine" id="cb7-5" title="5">                    , fromNonVoid arg <span class="op">==</span> fun_id</a>
-<a class="sourceLine" id="cb7-6" title="6">                    <span class="ot">=</span> <span class="dt">True</span></a>
-<a class="sourceLine" id="cb7-7" title="7">                    <span class="op">|</span> <span class="fu">otherwise</span></a>
-<a class="sourceLine" id="cb7-8" title="8">                    <span class="ot">=</span> <span class="dt">False</span></a>
-<a class="sourceLine" id="cb7-9" title="9">                when (evalSingleArg) <span class="op">$</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb7-10" title="10">                  tickySingleEvalArg</a>
-<a class="sourceLine" id="cb7-11" title="11">                  pprTraceM <span class="st">&quot;evalSingleArg&quot;</span> (ppr fun_id)</a>
-<a class="sourceLine" id="cb7-12" title="12">                emitEnter fun</a></code></pre></div>
-<p>If the current closure has only a single argument we emit additional code before the tag-check&amp;enter code which will bump our counter.</p>
-<p>In other words whenever we check if we have to evaluate the argument of a single-argument closure we will also bump our counter. Let’s put it to the test!</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>  <span class="dt">EnterIt</span> <span class="ot">-&gt;</span> <span class="kw">do</span> <span class="dt">MASSERT</span>( <span class="fu">null</span> args )  <span class="co">-- Discarding arguments</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>                args <span class="ot">&lt;-</span> getClosureArgs</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>                <span class="kw">let</span> evalSingleArg</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>                    <span class="op">|</span> <span class="dt">Just</span> [arg] <span class="ot">&lt;-</span> args</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>                    , fromNonVoid arg <span class="op">==</span> fun_id</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>                    <span class="ot">=</span> <span class="dt">True</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>                    <span class="op">|</span> <span class="fu">otherwise</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>                    <span class="ot">=</span> <span class="dt">False</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>                when (evalSingleArg) <span class="op">$</span> <span class="kw">do</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>                  tickySingleEvalArg</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>                  pprTraceM <span class="st">&quot;evalSingleArg&quot;</span> (ppr fun_id)</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>                emitEnter fun</span></code></pre></div>
+<p>If the current closure has only a single argument we emit additional code before the tag-check&amp;enter code
+which will bump our counter.</p>
+<p>In other words whenever we check if we have to evaluate the argument of a single-argument closure we will also bump our counter.
+Let’s put it to the test!</p>
 <h2 id="step-3-wait-a-long-time-while-ghc-builds">Step 3: Wait a long time while GHC builds</h2>
 <h2 id="step-4-lets-ticky-some-code">Step 4: Let’s ticky some code</h2>
 <p>The easiest way is arguably to test it on <a href="https://gitlab.haskell.org/ghc/ghc/wikis/building/running-no-fib">nofib</a>.</p>
-<p>We simply pass <code>-ticky</code> on compilation and <code>+RTS -r -RTS</code> when running the benchmarks. The full invocation then is:</p>
+<p>We simply pass <code>-ticky</code> on compilation and <code>+RTS -r -RTS</code> when running the benchmarks.
+The full invocation then is:</p>
 <p><code>make clean &amp;&amp; make boot &amp;&amp; make EXTRA_HC_OPTS="-ticky" SRC_RUNTEST_OPTS="+RTS -r -RTS"</code></p>
-<p>Running the benchmarks then will create <code>&lt;executableName&gt;.ticky</code> files in the folder we started them in. We will just grep for our counters name across all the files to see if this is a super rare occurence or pretty common.</p>
+<p>Running the benchmarks then will create <code>&lt;executableName&gt;.ticky</code> files in the folder we started them in.
+We will just grep for our counters name across all the files to see if this is a super rare occurence or
+pretty common.</p>
 <pre><code>find nofib/ -name &quot;*.ticky&quot; -exec cat {} + | less | grep ENT_SINGLE_EVALD_ARG_ctr
         357 ENT_SINGLE_EVALD_ARG_ctr
           0 ENT_SINGLE_EVALD_ARG_ctr
@@ -206,8 +228,10 @@ However neither inside, nor at the callsite of <code>emitEnter</code> we know if
 <li>parstof, the benchmark with the 60 Million entries for our counter takes ~1.5 seconds to run when optimized.</li>
 <li>One cycle on my cpu takes around 0.25 nanoseconds.</li>
 </ul>
-<p>If each entry get’s one cycle faster that’s 15ms saved, or about 1%. That’s not huge but a decent speedup for a straight forward optimization.</p>
-<p>Now maybe it would shave of 40 cycles, or maybe all arguments are lazy. Either way there is the chance that this will be useful so it’s worth digging deeper.</p>
+<p>If each entry get’s one cycle faster that’s 15ms saved, or about 1%. That’s not huge but
+a decent speedup for a straight forward optimization.</p>
+<p>Now maybe it would shave of 40 cycles, or maybe all arguments are lazy. Either way there is the chance that
+this will be useful so it’s worth digging deeper.</p>
 <h2 id="step6-a-better-counter.">Step6: A better counter.</h2>
 <p>Now what we want to do is the following:</p>
 <ul>
@@ -215,30 +239,36 @@ However neither inside, nor at the callsite of <code>emitEnter</code> we know if
 <li>Only if it’s evaluated bump another counter.</li>
 </ul>
 <p>Thankfully there is this helpful function:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb9-1" title="1"><span class="ot">bumpTickyCounterByE ::</span> <span class="dt">FastString</span> <span class="ot">-&gt;</span> <span class="dt">CmmExpr</span> <span class="ot">-&gt;</span> <span class="dt">FCode</span> ()</a>
-<a class="sourceLine" id="cb9-2" title="2">bumpTickyCounterByE lbl <span class="ot">=</span> bumpTickyLblByE (mkCmmDataLabel rtsUnitId lbl)</a></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ot">bumpTickyCounterByE ::</span> <span class="dt">FastString</span> <span class="ot">-&gt;</span> <span class="dt">CmmExpr</span> <span class="ot">-&gt;</span> <span class="dt">FCode</span> ()</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>bumpTickyCounterByE lbl <span class="ot">=</span> bumpTickyLblByE (mkCmmDataLabel rtsUnitId lbl)</span></code></pre></div>
 <p>It allows us to bump another counter by the value of a CmmExpr so we can contrast the evaluated and unevaluated cases.<br />
 However since I am lazy I will just reuse the existing counter, but only bumping it when the argument is also evaluated.</p>
 <p>This is fine as I can compare the results to earlier runs.</p>
 <p>So we replace <code>tickySingleEvalArg</code> with <code>tickySingleEvalArgBy</code></p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb10-1" title="1"><span class="ot">tickySingleEvalArgBy ::</span> <span class="dt">CmmExpr</span> <span class="ot">-&gt;</span> <span class="dt">FCode</span> ()</a>
-<a class="sourceLine" id="cb10-2" title="2">tickySingleEvalArgBy <span class="ot">=</span> ifTicky <span class="op">$</span> bumpTickyCounterByE (fsLit <span class="st">&quot;ENT_SINGLE_EVALD_ARG_ctr&quot;</span>)</a></code></pre></div>
-<p>GHC is nice enough enough to translate boolean Cmm expressions to the values 0/1 when we use such an expression where a value is expected. So we only have to come up with an Cmm expression which tells us if the argument is already evaluated. Something we can use <code>(cmmIsTagged dflags fun)</code> for.</p>
-<p>So the use site doesn’t change that much, we only pass an expression checking for a pointer tag as the argument to our new ticky function.</p>
-<div class="sourceCode" id="cb11"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb11-1" title="1">    args <span class="ot">&lt;-</span> getClosureArgs</a>
-<a class="sourceLine" id="cb11-2" title="2">    <span class="kw">let</span> evalSingleArg</a>
-<a class="sourceLine" id="cb11-3" title="3">        <span class="op">|</span> <span class="dt">Just</span> [arg] <span class="ot">&lt;-</span> args</a>
-<a class="sourceLine" id="cb11-4" title="4">        , fromNonVoid arg <span class="op">==</span> fun_id</a>
-<a class="sourceLine" id="cb11-5" title="5">        <span class="ot">=</span> <span class="dt">True</span></a>
-<a class="sourceLine" id="cb11-6" title="6">        <span class="op">|</span> <span class="fu">otherwise</span></a>
-<a class="sourceLine" id="cb11-7" title="7">        <span class="ot">=</span> <span class="dt">False</span></a>
-<a class="sourceLine" id="cb11-8" title="8">    when (evalSingleArg) <span class="op">$</span> <span class="kw">do</span></a>
-<a class="sourceLine" id="cb11-9" title="9">      tickySingleEvalArgBy (cmmIsTagged dflags fun)</a>
-<a class="sourceLine" id="cb11-10" title="10">      pprTraceM <span class="st">&quot;evalSingleArg&quot;</span> (ppr fun_id)</a>
-<a class="sourceLine" id="cb11-11" title="11">    emitEnter fun</a></code></pre></div>
+<div class="sourceCode" id="cb10"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ot">tickySingleEvalArgBy ::</span> <span class="dt">CmmExpr</span> <span class="ot">-&gt;</span> <span class="dt">FCode</span> ()</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>tickySingleEvalArgBy <span class="ot">=</span> ifTicky <span class="op">$</span> bumpTickyCounterByE (fsLit <span class="st">&quot;ENT_SINGLE_EVALD_ARG_ctr&quot;</span>)</span></code></pre></div>
+<p>GHC is nice enough enough to translate boolean Cmm expressions to the values 0/1 when we
+use such an expression where a value is expected. So we only have to come up with an Cmm expression
+which tells us if the argument is already evaluated. Something we can use <code>(cmmIsTagged dflags fun)</code>
+for.</p>
+<p>So the use site doesn’t change that much, we only pass an expression checking for a pointer
+tag as the argument to our new ticky function.</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>    args <span class="ot">&lt;-</span> getClosureArgs</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> evalSingleArg</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> <span class="dt">Just</span> [arg] <span class="ot">&lt;-</span> args</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>        , fromNonVoid arg <span class="op">==</span> fun_id</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>        <span class="ot">=</span> <span class="dt">True</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> <span class="fu">otherwise</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>        <span class="ot">=</span> <span class="dt">False</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    when (evalSingleArg) <span class="op">$</span> <span class="kw">do</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>      tickySingleEvalArgBy (cmmIsTagged dflags fun)</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>      pprTraceM <span class="st">&quot;evalSingleArg&quot;</span> (ppr fun_id)</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    emitEnter fun</span></code></pre></div>
 <h2 id="step7-final-results">Step7: Final results</h2>
-<p>Running nofib we get similar, but still quite encouraging results. In particular parstof still has very high entry counts for the single argument + evaluated combination.</p>
-<p>Now ~52M instead of 60M entries. Sure fewer (which is expected) but more than I would have guessed. So bottom line is it seems worth to do this optimization!</p>
+<p>Running nofib we get similar, but still quite encouraging results.
+In particular parstof still has very high entry counts for the single argument + evaluated combination.</p>
+<p>Now ~52M instead of 60M entries. Sure fewer (which is expected) but more than I would have guessed.
+So bottom line is it seems worth to do this optimization!</p>
 <p>Overall even evaluated single arguments seem somewhat common. Here are the counter results for the first 10 benchmarks:</p>
 <pre><code>$ find nofib/ -name &quot;*.ticky&quot; -exec cat {} + | less | grep ENT_SINGLE_EVALD_ARG_ctr
          17 ENT_SINGLE_EVALD_ARG_ctr

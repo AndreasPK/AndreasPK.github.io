@@ -34,27 +34,38 @@
     
 </div>
 
-<p>Template Haskell (TH) is a powerful tool for specializing programs and allows shifting some work from runtime to compile time.</p>
-<p>It can be a bit intimidating to use for beginners. So I thought I would write up how to use TH to turn a certain kind runtime computations into compile time computations.</p>
-<p>In particular we will turn the initialization of a fully static data structure into a compile time operation.</p>
-<p>This pattern works for many data structures but we will look at IntSet in particular.</p>
+<p>Template Haskell (TH) is a powerful tool for specializing programs
+and allows shifting some work from runtime to compile time.</p>
+<p>It can be a bit intimidating to use for beginners. So I thought I
+would write up how to use TH to turn a certain kind runtime computations
+into compile time computations.</p>
+<p>In particular we will turn the initialization of a fully static data
+structure into a compile time operation.</p>
+<p>This pattern works for many data structures but we will look
+at IntSet in particular.</p>
 <h1 id="a-working-example">A working example</h1>
 <p>As an example consider a function of this sort:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb1-1" title="1"><span class="ot">isStaticId ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></a>
-<a class="sourceLine" id="cb1-2" title="2">isStaticId x <span class="ot">=</span></a>
-<a class="sourceLine" id="cb1-3" title="3">    x <span class="ot">`elem`</span> staticIds</a>
-<a class="sourceLine" id="cb1-4" title="4">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb1-5" title="5">    staticIds <span class="ot">=</span> [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span><span class="ot"> ::</span> <span class="dt">Int</span>]</a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ot">isStaticId ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>isStaticId x <span class="ot">=</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">`elem`</span> staticIds</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    staticIds <span class="ot">=</span> [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span><span class="ot"> ::</span> <span class="dt">Int</span>]</span></code></pre></div>
 <!-- more -->
 <p>We have a set of known things here represented by a list in the form of <code>staticIds</code>.</p>
-<p>We use <code>Int</code> as it makes the example easier. But these could be Strings or all kinds of things. In particular I was inspired by GHC’s list of known builtin functions.</p>
+<p>We use <code>Int</code> as it makes the example easier. But these could be Strings or all kinds of things.
+In particular I was inspired by GHC’s list of known builtin functions.</p>
 <h2 id="upsides-of-the-list-representation">Upsides of the list representation</h2>
-<p>The advantage of the code as written above is that the list is statically known. As a result the list will be built into the final object code as static data, and accessing it will not require any allocation/computation.</p>
-<p>You can check this by looking at the core dump (<code>-ddump-simpl</code>). Don’t forget to enable optimizations or this might not work as expected. In the core there should be a number of definitions like the one below.</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb2-1" title="1"><span class="co">-- RHS size: {terms: 3, types: 1, coercions: 0, joins: 0/0}</span></a>
-<a class="sourceLine" id="cb2-2" title="2">isStaticId3</a>
-<a class="sourceLine" id="cb2-3" title="3">isStaticId3 <span class="ot">=</span> <span class="op">:</span> isStaticId8 isStaticId4</a></code></pre></div>
-<p>Each definition of this form will be compiled to static data. It will eventually be represented as just a number of words encoding the constructor and it’s fields.</p>
+<p>The advantage of the code as written above is that the list is statically known.
+As a result the list will be built into the final object code as static data, and accessing it will not require any allocation/computation.</p>
+<p>You can check this by looking at the core dump (<code>-ddump-simpl</code>).
+Don’t forget to enable optimizations or this might not work as expected.
+In the core there should be a number of definitions like the one below.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- RHS size: {terms: 3, types: 1, coercions: 0, joins: 0/0}</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>isStaticId3</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>isStaticId3 <span class="ot">=</span> <span class="op">:</span> isStaticId8 isStaticId4</span></code></pre></div>
+<p>Each definition of this form will be compiled to static data.
+It will eventually be represented as just a number of words encoding the
+constructor and it’s fields.</p>
 <p>We can conform this by looking at the Cmm output where it will look like this:</p>
 <pre><code>[section &quot;&quot;data&quot; . isStaticId3_closure&quot; {
      isStaticId3_closure:
@@ -63,103 +74,137 @@
          const isStaticId4_closure+2;
          const 3;
  }]</code></pre>
-<p>I won’t go into the details of how to read the <code>Cmm</code> but it shows us that the binding will end up in the data section. <code>:_con_info;</code> tells us it’s a Cons cell and then we have the actual data stored in the cell.</p>
-<p>What is important here is that this is <em>static</em> data. The GC won’t have to traverse it so having the data around does not affect GC performance. We also don’t need to compute it at runtime as it’s present in the object file in it’s fully evaluated form.</p>
+<p>I won’t go into the details of how to read the <code>Cmm</code> but it shows us that the binding will end up in the data section.
+<code>:_con_info;</code> tells us it’s a Cons cell and then we have the actual data stored in the cell.</p>
+<p>What is important here is that this is <em>static</em> data. The GC won’t have to traverse it so having the
+data around does not affect GC performance. We also don’t need to compute it at runtime as it’s present
+in the object file in it’s fully evaluated form.</p>
 <h2 id="switching-to-intset">Switching to IntSet</h2>
-<p>What if we aggregate more data? If we blow up the list to 100, 1000 or more elements it’s likely that performing a linear search will be become a bottleneck for performance.</p>
+<p>What if we aggregate more data? If we blow up the list to 100, 1000 or more elements it’s likely that
+performing a linear search will be become a bottleneck for performance.</p>
 <p>So we rewrite our function to use a Set as follows:</p>
 <pre><code>isStaticIdSet :: Int -&gt; Bool
 isStaticIdSet x =
     x `S.member` staticIds
   where
     staticIds = S.fromList [1,2,3,5,7 :: Int] :: IntSet</code></pre>
-<p>This looks perfectly fine on the surface. Instead of having O(n) lookups we should get O(log(n)) lookups right?</p>
+<p>This looks perfectly fine on the surface.
+Instead of having O(n) lookups we should get O(log(n)) lookups right?</p>
 <h2 id="pitfalls-of-runtime-initialization">Pitfalls of runtime initialization</h2>
-<p>However what happens at runtime? In order to query the set we have to first convert the list into a set. This is where disaster strikes. We are no longer querying static data as the list argument has to be converted into a list. Something that won’t happen at compile time.</p>
-<p>GHC often manages to share our created set across calls. But depending on the code in question it might not. And we can end up paying the cost of set construction for each call to <code>isStaticId</code>.</p>
-<p>So while we reduced the lookup cost from <code>O(n)</code> to <code>O(log(n))</code> total cost is now <code>O(n*min(n,W)+ log(n))</code>. <code>n*min(n,W)</code> being the cost of <a href="https://hackage.haskell.org/package/containers-0.6.2.1/docs/Data-IntSet.html#v:fromList">constructing the set</a> from a list. We could optimize it slightly by making sure the list is sorted and has no duplicates. But this would still be worse than the list based code we start out with.</p>
+<p>However what happens at runtime? In order to query the set we have to first convert
+the list into a set.
+This is where disaster strikes. We are no longer querying static data as the list argument
+has to be converted into a list. Something that won’t happen at compile time.</p>
+<p>GHC often manages to share our created set across calls. But depending on the code in question
+it might not. And we can end up paying the cost of set construction for each call to <code>isStaticId</code>.</p>
+<p>So while we reduced the lookup cost from <code>O(n)</code> to <code>O(log(n))</code> total cost is now
+<code>O(n*min(n,W)+ log(n))</code>. <code>n*min(n,W)</code> being the cost of <a href="https://hackage.haskell.org/package/containers-0.6.2.1/docs/Data-IntSet.html#v:fromList">constructing the set</a>
+from a list.
+We could optimize it slightly by making sure the list is sorted and has no duplicates. But this would still
+be worse than the list based code we start out with.</p>
 <p>It’s a shame that GHC can’t evaluate <code>fromList</code> at compile time. Or can it?</p>
 <h1 id="template-haskell-th-to-the-rescue">Template Haskell (TH) to the rescue</h1>
-<p>What we really want to do is to force GHC to fully evaluate our input data to an <code>IntSet</code>. Then ensure the <code>IntSet</code> is stored as static data just like it happens for the list in our initial example.</p>
+<p>What we really want to do is to force GHC to fully evaluate our input data to an <code>IntSet</code>.
+Then ensure the <code>IntSet</code> is stored as static data just like it happens for the list in our initial example.</p>
 <h2 id="how-can-th-help">How can TH help?</h2>
 <p>Template haskell allows us to specify parts of the program to compute at compile time.</p>
 <p>So we “simply” tell it to compute the Set at compile time and are done.</p>
 <p>Like so:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb5-1" title="1"><span class="ot">{-# NOINLINE isStaticIdSet #-}</span></a>
-<a class="sourceLine" id="cb5-2" title="2"><span class="ot">isStaticIdSet ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></a>
-<a class="sourceLine" id="cb5-3" title="3">isStaticIdSet x <span class="ot">=</span></a>
-<a class="sourceLine" id="cb5-4" title="4">    x <span class="ot">`S.member`</span> notSoStaticIds</a>
-<a class="sourceLine" id="cb5-5" title="5">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb5-6" title="6">    notSoStaticIds <span class="ot">=</span> <span class="op">$</span>( lift <span class="op">$</span> (S.fromList [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span>]<span class="ot"> ::</span> <span class="dt">IntSet</span>))</a></code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# NOINLINE isStaticIdSet #-}</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ot">isStaticIdSet ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>isStaticIdSet x <span class="ot">=</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">`S.member`</span> notSoStaticIds</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    notSoStaticIds <span class="ot">=</span> <span class="op">$</span>( lift <span class="op">$</span> (S.fromList [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span>]<span class="ot"> ::</span> <span class="dt">IntSet</span>))</span></code></pre></div>
 <p>This results in core as simple as this:</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb6-1" title="1"></a>
-<a class="sourceLine" id="cb6-2" title="2">isStaticIdSet1</a>
-<a class="sourceLine" id="cb6-3" title="3">isStaticIdSet1 <span class="ot">=</span> <span class="dt">Tip</span> <span class="dv">0</span><span class="op">#</span> <span class="dv">174</span><span class="op">##</span></a>
-<a class="sourceLine" id="cb6-4" title="4"></a>
-<a class="sourceLine" id="cb6-5" title="5"><span class="co">-- RHS size: {terms: 7, types: 3, coercions: 0, joins: 0/0}</span></a>
-<a class="sourceLine" id="cb6-6" title="6">isStaticIdSet</a>
-<a class="sourceLine" id="cb6-7" title="7">isStaticIdSet</a>
-<a class="sourceLine" id="cb6-8" title="8">  <span class="ot">=</span> \ x_a5ar <span class="ot">-&gt;</span></a>
-<a class="sourceLine" id="cb6-9" title="9">      <span class="kw">case</span> x_a5ar <span class="kw">of</span> { <span class="dt">I</span><span class="op">#</span> ww1_i5r2 <span class="ot">-&gt;</span> <span class="op">$</span>wmember ww1_i5r2 isStaticIdSet1 }</a></code></pre></div>
-<p>No longer will we allocate the set at compile time, instead the whole set is encoded in <code>isStaticIdSet1</code>. We only get a single constructor because IntSet can encodes small sets as a single constructor.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>isStaticIdSet1</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>isStaticIdSet1 <span class="ot">=</span> <span class="dt">Tip</span> <span class="dv">0</span><span class="op">#</span> <span class="dv">174</span><span class="op">##</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- RHS size: {terms: 7, types: 3, coercions: 0, joins: 0/0}</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>isStaticIdSet</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>isStaticIdSet</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> \ x_a5ar <span class="ot">-&gt;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>      <span class="kw">case</span> x_a5ar <span class="kw">of</span> { <span class="dt">I</span><span class="op">#</span> ww1_i5r2 <span class="ot">-&gt;</span> <span class="op">$</span>wmember ww1_i5r2 isStaticIdSet1 }</span></code></pre></div>
+<p>No longer will we allocate the set at compile time, instead the whole set is encoded in <code>isStaticIdSet1</code>.
+We only get a single constructor because IntSet can encodes small sets as a single constructor.</p>
 <h3 id="how-it-works">How it works</h3>
 <p>From the outside in:</p>
-<p><code>$( .. )</code> is TH syntax for splicing. It evaluates a template haskell expression and <em>splices</em> the result into our program.</p>
-<p>The next piece of magic is <code>lift</code>. It takes a regular <em>haskell</em> expression, evaluates it at <em>compile time</em> to a <em>TH</em> expressions which when spliced equals the evaluated value of the haskell expression.</p>
+<p><code>$( .. )</code> is TH syntax for splicing. It evaluates a template haskell expression and <em>splices</em>
+the result into our program.</p>
+<p>The next piece of magic is <code>lift</code>. It takes a regular <em>haskell</em> expression,
+evaluates it at <em>compile time</em> to a <em>TH</em> expressions which when spliced equals
+the evaluated value of the haskell expression.</p>
 <p>And then we just have regular set creation <code>S.fromList [1,2,3,5,7]</code>.</p>
-<p>Putting those together during compilation GHC will: * Evaluate <code>S.fromList [1,2,3,5,7]</code>. * <code>lift</code> takes the result of this evaluation and gives us TH expression. * Using <code>$( .. )</code> we splice the resulting TH expression into our program. Effectively inserting the fully evaluated expression into our program.</p>
+<p>Putting those together during compilation GHC will:
+* Evaluate <code>S.fromList [1,2,3,5,7]</code>.
+* <code>lift</code> takes the result of this evaluation and gives us TH expression.
+* Using <code>$( .. )</code> we splice the resulting TH expression into our program.
+Effectively inserting the fully evaluated expression into our program.</p>
 <p>The resulting code will be compiled like any other, in this case resulting in fully static data.</p>
 <h2 id="full-example">Full example</h2>
-<p>Now you might think this was too easy, and you are partially right. The main issue is that lift requires a instance of the <code>Lift</code> typeclass.</p>
-<p>Because the compiler needs a way to translate the haskell value into a TH expression.</p>
-<p>But for the case of IntSet we can have GHC derive one for us. So all it costs us is slightly more boiler plate.</p>
-<p>Sadly we need to derive the Lift instance in another module than we use it in. The derived instances also won’t work for infinite data structures like knot tied lists.</p>
+<p>Now you might think this was too easy, and you are partially right.
+The main issue is that lift requires a instance of the <code>Lift</code> typeclass.</p>
+<p>Because the compiler needs a way to translate the haskell value into a TH
+expression.</p>
+<p>But for the case of IntSet we can have GHC derive one for us.
+So all it costs us is slightly more boiler plate.</p>
+<p>Sadly we need to derive the Lift instance in another module than we use it in.
+The derived instances also won’t work for infinite data structures like knot tied lists.</p>
 <p>Why this is required is probably best explained by a proper TH tutorial.</p>
 <p>Here is a full working example for you to play around with:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><a class="sourceLine" id="cb7-1" title="1"><span class="co">-- First module</span></a>
-<a class="sourceLine" id="cb7-2" title="2"><span class="ot">{-# LANGUAGE TemplateHaskell #-}</span> <span class="co">-- ^ Enable TH</span></a>
-<a class="sourceLine" id="cb7-3" title="3"></a>
-<a class="sourceLine" id="cb7-4" title="4"><span class="co">-- </span></a>
-<a class="sourceLine" id="cb7-5" title="5"><span class="ot">{-# LANGUAGE StandaloneDeriving #-}</span> </a>
-<a class="sourceLine" id="cb7-6" title="6"><span class="ot">{-# LANGUAGE DeriveLift #-}</span></a>
-<a class="sourceLine" id="cb7-7" title="7"></a>
-<a class="sourceLine" id="cb7-8" title="8"><span class="kw">module</span> <span class="dt">TH_Lift</span>  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb7-9" title="9"></a>
-<a class="sourceLine" id="cb7-10" title="10"><span class="kw">import</span> <span class="dt">Language.Haskell.TH.Syntax</span></a>
-<a class="sourceLine" id="cb7-11" title="11"></a>
-<a class="sourceLine" id="cb7-12" title="12"><span class="kw">import</span> <span class="dt">Data.IntSet.Internal</span></a>
-<a class="sourceLine" id="cb7-13" title="13"></a>
-<a class="sourceLine" id="cb7-14" title="14"><span class="kw">deriving</span> <span class="kw">instance</span> <span class="dt">Lift</span> (<span class="dt">IntSet</span>)</a>
-<a class="sourceLine" id="cb7-15" title="15"></a>
-<a class="sourceLine" id="cb7-16" title="16"><span class="co">---------------------------------</span></a>
-<a class="sourceLine" id="cb7-17" title="17"><span class="co">-- Second module</span></a>
-<a class="sourceLine" id="cb7-18" title="18"><span class="ot">{-# LANGUAGE TemplateHaskell #-}</span></a>
-<a class="sourceLine" id="cb7-19" title="19"></a>
-<a class="sourceLine" id="cb7-20" title="20"><span class="kw">module</span> <span class="dt">M</span> (isStaticIdSet) <span class="kw">where</span></a>
-<a class="sourceLine" id="cb7-21" title="21"></a>
-<a class="sourceLine" id="cb7-22" title="22"><span class="kw">import</span> <span class="dt">TH_Lift</span></a>
-<a class="sourceLine" id="cb7-23" title="23"><span class="kw">import</span> <span class="dt">Data.IntSet</span> <span class="kw">as</span> <span class="dt">S</span></a>
-<a class="sourceLine" id="cb7-24" title="24"><span class="kw">import</span> <span class="dt">Language.Haskell.TH</span></a>
-<a class="sourceLine" id="cb7-25" title="25"><span class="kw">import</span> <span class="dt">Language.Haskell.TH.Syntax</span></a>
-<a class="sourceLine" id="cb7-26" title="26"><span class="kw">type</span> <span class="dt">Id</span> <span class="ot">=</span> <span class="dt">Int</span></a>
-<a class="sourceLine" id="cb7-27" title="27"></a>
-<a class="sourceLine" id="cb7-28" title="28"><span class="ot">isStaticIdSet ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></a>
-<a class="sourceLine" id="cb7-29" title="29">isStaticIdSet x <span class="ot">=</span></a>
-<a class="sourceLine" id="cb7-30" title="30">    x <span class="ot">`S.member`</span> staticSet</a>
-<a class="sourceLine" id="cb7-31" title="31">  <span class="kw">where</span></a>
-<a class="sourceLine" id="cb7-32" title="32">    staticSet <span class="ot">=</span> <span class="op">$</span>( lift <span class="op">$</span> (S.fromList [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span>]<span class="ot"> ::</span> <span class="dt">IntSet</span>))</a></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- First module</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE TemplateHaskell #-}</span> <span class="co">-- ^ Enable TH</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co">-- </span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE StandaloneDeriving #-}</span> </span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE DeriveLift #-}</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="kw">module</span> <span class="dt">TH_Lift</span>  <span class="kw">where</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Language.Haskell.TH.Syntax</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.IntSet.Internal</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a><span class="kw">deriving</span> <span class="kw">instance</span> <span class="dt">Lift</span> (<span class="dt">IntSet</span>)</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a><span class="co">---------------------------------</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a><span class="co">-- Second module</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE TemplateHaskell #-}</span></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="kw">module</span> <span class="dt">M</span> (isStaticIdSet) <span class="kw">where</span></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">TH_Lift</span></span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.IntSet</span> <span class="kw">as</span> <span class="dt">S</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Language.Haskell.TH</span></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Language.Haskell.TH.Syntax</span></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> <span class="dt">Id</span> <span class="ot">=</span> <span class="dt">Int</span></span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a><span class="ot">isStaticIdSet ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>isStaticIdSet x <span class="ot">=</span></span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">`S.member`</span> staticSet</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>  <span class="kw">where</span></span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>    staticSet <span class="ot">=</span> <span class="op">$</span>( lift <span class="op">$</span> (S.fromList [<span class="dv">1</span>,<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">7</span>]<span class="ot"> ::</span> <span class="dt">IntSet</span>))</span></code></pre></div>
 <h2 id="why-do-we-require-two-modules.">Why do we require two modules.</h2>
-<p>We translate <code>lift $ (S.fromList [1,2,3,5,7] :: IntSet)</code> into a TH expression at compile time. For this GHC will call the (already compiled) lift method of the <code>Lift</code> instance.</p>
-<p>However if we define <code>isStaticIdSet</code> and the <code>Lift</code> instance in the same module GHC can’t call <code>lift</code> as it’s not yet compiled by the time we need it.</p>
-<p>In practice most packages have companions which already offer <code>Lift</code> instances. For example <code>th-lift-instances</code> offers instances for the Container package.</p>
+<p>We translate <code>lift $ (S.fromList [1,2,3,5,7] :: IntSet)</code> into a TH expression at
+compile time. For this GHC will call the (already compiled) lift method of the <code>Lift</code> instance.</p>
+<p>However if we define <code>isStaticIdSet</code> and the <code>Lift</code> instance in the same module
+GHC can’t call <code>lift</code> as it’s not yet compiled by the time we need it.</p>
+<p>In practice most packages have companions which already offer <code>Lift</code> instances.
+For example <code>th-lift-instances</code> offers instances for the Container package.</p>
 <h2 id="disclaimer-this-wont-work-for-all-data-types.">Disclaimer: This won’t work for all data types.</h2>
-<p>For many data types the result of <code>lift</code> will be an expression that can be compiled to static data as long as the contents are known.</p>
-<p>This is in particular true for “simple” ADT’s like the ones used by IntSet or Set.</p>
-<p>However certain primitves like arrays can’t be allocated at compile time. This sadly means this trick won’t work for Arrays or Vectors.</p>
-<p>There is a ticket about lifting this restriction on arrays on <a href="https://gitlab.haskell.org/ghc/ghc/issues/16944">ghc’s issue tracker.</a>.</p>
+<p>For many data types the result of <code>lift</code> will be an expression that
+can be compiled to static data as long as the contents are known.</p>
+<p>This is in particular true for “simple” ADT’s like the ones used by IntSet
+or Set.</p>
+<p>However certain primitves like arrays can’t be allocated at compile time.
+This sadly means this trick won’t work for Arrays or Vectors.</p>
+<p>There is a ticket about lifting this restriction on arrays on <a href="https://gitlab.haskell.org/ghc/ghc/issues/16944">ghc’s issue
+tracker.</a>.</p>
 <p>So hopefully this will work for arrays at some point in the future.</p>
 <h2 id="havent-i-read-this-before-somewhere">Haven’t I read this before somewhere?</h2>
-<p>This was initially published on to the <a href="http://www.well-typed.com/blog/2020/06/th-for-static-data/">Well Typed blog</a>. In the process of publishing it there parts of it have been much improved by contributions from Well-Typed.</p>
+<p>This was initially published on to the <a href="http://www.well-typed.com/blog/2020/06/th-for-static-data/">Well Typed blog</a>.
+In the process of publishing it there parts of it have been much improved by contributions from Well-Typed.</p>
 
         </div>
         <div id="footer">

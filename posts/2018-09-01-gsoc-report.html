@@ -34,16 +34,19 @@
 
 <p>Disclaimer: Initially this was a gist - So the actual date is estimated.</p>
 <h1 id="improvements-to-ghcs-code-generator">Improvements to GHCs Code Generator</h1>
-<p>This is a writeup of the work done by me (Andreas Klebinger) during my SoC 2018 Project.</p>
+<p>This is a writeup of the work done by me (Andreas Klebinger) during
+my SoC 2018 Project.</p>
 <h2 id="improved-code-layout-for-ghc">Improved code layout for GHC</h2>
-<p>The vast majority of my time was spent working on this part of the Project. While the patch was not yet merged there is not much missing.</p>
-<p>The state of the patch can be viewed on <a href="https://phabricator.haskell.org/D4726">GHCs Phab</a>. Some discussion is also on the <a href="https://ghc.haskell.org/trac/ghc/ticket/15124">Bug Tracker</a></p>
+<p>The vast majority of my time was spent working on this part of the Project.
+While the patch was not yet merged there is not much missing.</p>
+<p>The state of the patch can be viewed on <a href="https://phabricator.haskell.org/D4726">GHCs Phab</a>.
+Some discussion is also on the <a href="https://ghc.haskell.org/trac/ghc/ticket/15124">Bug Tracker</a></p>
 <p>A explaination is also available on the <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/CodeLayout">GHC wiki</a></p>
 <h3 id="preliminary-results">Preliminary results:</h3>
 <p>Numbers are speedups, higher is better.</p>
 <table>
 <thead>
-<tr class="header">
+<tr>
 <th>Library</th>
 <th style="text-align: right;">Sandy Bridge (Linux)</th>
 <th style="text-align: right;">Haswell (Linux)</th>
@@ -51,37 +54,37 @@
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td>aeson</td>
 <td style="text-align: right;">+2.6%</td>
 <td style="text-align: right;">+2.3%</td>
 <td style="text-align: right;">+1.2%</td>
 </tr>
-<tr class="even">
+<tr>
 <td>containers</td>
 <td style="text-align: right;">+1.4%</td>
 <td style="text-align: right;">+1.1%</td>
 <td style="text-align: right;">+1.7%</td>
 </tr>
-<tr class="odd">
+<tr>
 <td>megaparsec</td>
 <td style="text-align: right;">+3.2%</td>
 <td style="text-align: right;">+13.6% 1 )</td>
 <td style="text-align: right;">+8.0%</td>
 </tr>
-<tr class="even">
+<tr>
 <td>perf-xml 2 )</td>
 <td style="text-align: right;">+0.2%</td>
 <td style="text-align: right;">NA</td>
 <td style="text-align: right;">+1.1%</td>
 </tr>
-<tr class="odd">
+<tr>
 <td>text</td>
 <td style="text-align: right;">+3.0%</td>
 <td style="text-align: right;">NA</td>
 <td style="text-align: right;">NA</td>
 </tr>
-<tr class="even">
+<tr>
 <td>Vector *2</td>
 <td style="text-align: right;">+2.5%</td>
 <td style="text-align: right;">+2.5%</td>
@@ -95,19 +98,32 @@
 </ul>
 <h3 id="layout-project-review">Layout project review</h3>
 <h4 id="motivation">Motivation</h4>
-<p>The idea was born out of neccesity. Some time ago I worked on adding static analysis to GHC to mark branches as likely or unlikely to be taken. Ultimately however this showed almost no benefit on runtime since code layout did not take advantage of this information. Even producing worse code at times.</p>
+<p>The idea was born out of neccesity. Some time ago I worked on adding static analysis to GHC to mark branches
+as likely or unlikely to be taken. Ultimately however this showed almost no benefit on runtime since code
+layout did not take advantage of this information. Even producing worse code at times.</p>
 <h4 id="initial-work">Initial work</h4>
-<p>It became quickly clear that in order to improve on this GHC would need more information about control flow available when doing code layout.</p>
-<p>There were two ways to approach this: Attach metadata to assembly instructions or have this information available out of band. I chose the later, building up a CFG from the CMM intermediate Language before generating assembly from it. Then doing static analysis on that to assign edge weights which approximate control flow patterns and using these to find a good code layout.</p>
+<p>It became quickly clear that in order to improve on this GHC would need more information about control
+flow available when doing code layout.</p>
+<p>There were two ways to approach this: Attach metadata to assembly instructions or have this information
+available out of band. I chose the later, building up a CFG from the CMM intermediate Language before
+generating assembly from it. Then doing static analysis on that to assign edge weights which approximate control flow patterns and using these to find a good code layout.</p>
 <p>I started with a greedy algorithm for placing blocks based on edge weights. This went surprisingly well and I did not run into major issues during the implementation. It was my favourite part of the project.</p>
 <h5 id="first-roadblock">First Roadblock</h5>
-<p>Next I wrote the code required to construct the CFG. However soon when testing the code I hit linker errors. After a good deal of debugging I realized that GHC adds (or removes!) basic blocks at non obvious places in the code. This meant blocks where invisible in the CFG, hence not placed and leading to issues at link time.</p>
-<p>Finding all the places that modify the CFG was the first unplanned part which took a larger amount of time. But for the x64 backend the code now updates the CFG as we modify the code.</p>
+<p>Next I wrote the code required to construct the CFG. However soon when testing the code I hit linker errors.
+After a good deal of debugging I realized that GHC adds (or removes!) basic blocks at non obvious places in the code.
+This meant blocks where invisible in the CFG, hence not placed and leading to issues at link time.</p>
+<p>Finding all the places that modify the CFG was the first unplanned part which took a larger amount of time.
+But for the x64 backend the code now updates the CFG as we modify the code.</p>
 <h4 id="benchmarks">Benchmarks</h4>
-<p>Finally I was able to benchmark the actual performance. Which was <strong>worse</strong> initially. However after experimentation it became clear that this was mostly a matter of adjusting how we assign weights. With results improving ever since.</p>
+<p>Finally I was able to benchmark the actual performance. Which was <strong>worse</strong> initially.
+However after experimentation it became clear that this was mostly a matter of adjusting
+how we assign weights. With results improving ever since.</p>
 <p>I initially only used nofib for benchmarks which has it’s own drawbacks.</p>
-<p>Over time I incorporated various library benchmark suits into my approach. Which in hindsight was important as these showcased both benefits and drawbacks which where not obvious looking only at nofib result.</p>
-<p>However benchmarking in general took a lot of work and time. Unexpected issues where:</p>
+<p>Over time I incorporated various library benchmark suits into my approach.
+Which in hindsight was important as these showcased both benefits and drawbacks
+which where not obvious looking only at nofib result.</p>
+<p>However benchmarking in general took a lot of work and time.
+Unexpected issues where:</p>
 <ul>
 <li>Benchmarks straight up being broken - some of the issues are listed below:
 <ul>
@@ -126,17 +142,25 @@
 </ul></li>
 <li>Benchmarks being broken when using a unreleased GHC version.</li>
 </ul>
-<p>I ended up writing a lot of scripts (bash/R) in order to compare the results of benchmarks. They are available <a href="https://github.com/AndreasPK/bench_hc_libs">here</a> but are better used as a source of inspiration. As they rely a lot on hardcoded paths/flags and the like.</p>
+<p>I ended up writing a lot of scripts (bash/R) in order to compare the results of benchmarks.
+They are available <a href="https://github.com/AndreasPK/bench_hc_libs">here</a> but are better used as a source of inspiration.
+As they rely a lot on hardcoded paths/flags and the like.</p>
 <h2 id="cmov-support---unfinished">CMOV Support - Unfinished</h2>
-<p>Convert certain code patterns to branchless instructions. There is a working prototype on <a href="https://phabricator.haskell.org/D4832">Phab</a>.</p>
-<p>However there are still bugs with certain edge cases. Ultimately the work on this was posponed in favour of the layout work which promised bigger benefits in more cases.</p>
+<p>Convert certain code patterns to branchless instructions.
+There is a working prototype on <a href="https://phabricator.haskell.org/D4832">Phab</a>.</p>
+<p>However there are still bugs with certain edge cases. Ultimately the work on this was
+posponed in favour of the layout work which promised bigger benefits in more cases.</p>
 <h2 id="improvements-to-nofib">Improvements to nofib</h2>
 <h3 id="updated-nofib-default-runtimessettings">Updated nofib default runtimes/settings</h3>
-<p>Driven by the need to get reliable benchmarks I reworked the default settings for the nofib benchmark suite in order to harmonize runtimes between the different benchmarks.</p>
-<p>This has not yet been merged but has been accepted to be merged. <a href="https://ghc.haskell.org/trac/ghc/ticket/15357">Tracker</a>, <a href="https://phabricator.haskell.org/D4989">Patch</a></p>
+<p>Driven by the need to get reliable benchmarks I reworked the default settings for the nofib
+benchmark suite in order to harmonize runtimes between the different benchmarks.</p>
+<p>This has not yet been merged but has been accepted to be merged. <a href="https://ghc.haskell.org/trac/ghc/ticket/15357">Tracker</a>,
+<a href="https://phabricator.haskell.org/D4989">Patch</a></p>
 <h3 id="qol-patch---ignore-warnings-about-tabs-vs-spaces-for-nofib.">QOL Patch - Ignore warnings about tabs vs spaces for nofib.</h3>
 <p>This has been merged upstream.</p>
-<p>Nofib pretty consistently uses tabs especially in old benchmarks. Given the nature of the code it doesn’t make sense to emit warnings about this. <a href="https://phabricator.haskell.org/D4952">Patch</a></p>
+<p>Nofib pretty consistently uses tabs especially in old benchmarks.
+Given the nature of the code it doesn’t make sense to emit warnings about this.
+<a href="https://phabricator.haskell.org/D4952">Patch</a></p>
 <h3 id="bugfix---dont-search-for-perl-binary-in-a-hotcoded-path.">Bugfix - Don’t search for perl binary in a hotcoded path.</h3>
 <p>Merged upstream. <a href="https://phabricator.haskell.org/D4756">Patch</a></p>
 <h3 id="bugfix---some-benchmarks-ignored-given-compiler-options-if-these-were-overriden-by-o2">Bugfix - Some benchmarks ignored given compiler options if these were overriden by O2</h3>
@@ -153,11 +177,14 @@
 <p>Has been accepted but not yet merged. <a href="https://phabricator.haskell.org/D4929">Patch</a></p>
 <h3 id="alignment-of-symbols.">Alignment of symbols.</h3>
 <p>I wrote a patch to specify the alignment of generated functions at compile time to help rule out performance differences caused by alignment.</p>
-<p>This work has been merged upstream. <a href="https://ghc.haskell.org/trac/ghc/ticket/15148">Tracker</a>, <a href="https://phabricator.haskell.org/D4706">Phab</a></p>
+<p>This work has been merged upstream.
+<a href="https://ghc.haskell.org/trac/ghc/ticket/15148">Tracker</a>,
+<a href="https://phabricator.haskell.org/D4706">Phab</a></p>
 <h3 id="eliminate-conditional-branches-which-jump-to-the-same-target-on-true-and-false.">Eliminate conditional branches which jump to the same target on true and false.</h3>
 <p>This has been merged upstream. <a href="https://ghc.haskell.org/trac/ghc/ticket/15188">Tracker</a>,</p>
 <h3 id="invert-float-comparisons-to-eliminate-explicit-parity-checks.">Invert float comparisons to eliminate explicit parity checks.</h3>
-<p>Improve generated code by taking advantage of the fact that certain checks always fail on unordered floating point numbers.</p>
+<p>Improve generated code by taking advantage of the fact that certain
+checks always fail on unordered floating point numbers.</p>
 <p>The patch is complete but review and acceptance from maintainers is still required.</p>
 <p><a href="https://ghc.haskell.org/trac/ghc/ticket/15196">Tracker</a>, <a href="https://phabricator.haskell.org/D4990">Patch</a></p>
 <h3 id="contributions-to-the-wider-eco-system">Contributions to the wider eco system</h3>

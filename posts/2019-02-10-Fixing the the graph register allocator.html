@@ -32,44 +32,51 @@
     
 </div>
 
-<p>A course I took recently covered (graph) register allocators. So I took a look at GHC’s implementation of register allocation.<br />
+<p>A course I took recently covered (graph) register allocators.
+So I took a look at GHC’s implementation of register allocation.<br />
 While doing so I realized that a longstanding bug would be easy to fix so I did!</p>
-<p>Namely the current graph register allocator (<code>-fregs-graph</code>) just panics if code requires <a href="https://ghc.haskell.org/trac/ghc/ticket/8657">too many live variables</a>.</p>
+<p>Namely the current graph register allocator (<code>-fregs-graph</code>) just panics if code
+requires <a href="https://ghc.haskell.org/trac/ghc/ticket/8657">too many live variables</a>.</p>
 <p>If you are interested in why this happens, how spilling works or how it got fixed read on.</p>
 <h1 id="what-is-the-actual-issue">What is the actual issue?</h1>
 <p>If you know the details about how register spilling works you can just skip to the next section.</p>
 <h2 id="the-spilling-business">The spilling business</h2>
-<p>The register allocator assigns variables to registers. When we run out of registers we fall back and also use the stack as storage space.</p>
-<p>Running out of registers is usually not a huge deal but it’s what triggers this bug. For a simple example consider the naive code below and assume we only have two registers available.</p>
+<p>The register allocator assigns variables to registers.
+When we run out of registers we fall back and also use the stack as storage space.</p>
+<p>Running out of registers is usually not a huge deal but it’s what triggers this bug.
+For a simple example consider the naive code below and assume we only have two registers available.</p>
 <p>I’ve added comments with variables live after each statement and a possible register assignment.</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb1-1" title="1">  <span class="dt">int</span> v1,v2,v3,v4;</a>
-<a class="sourceLine" id="cb1-2" title="2"></a>
-<a class="sourceLine" id="cb1-3" title="3">  v1 = <span class="dv">1</span>; <span class="co">// v1 live          | registers: (v1,empty)</span></a>
-<a class="sourceLine" id="cb1-4" title="4">  v2 = <span class="dv">2</span>; <span class="co">// v1,v2 live       | registers: (v1,v2)</span></a>
-<a class="sourceLine" id="cb1-5" title="5">  v3 = <span class="dv">3</span>; <span class="co">// v1,v2,v3 live    | registers: ???</span></a>
-<a class="sourceLine" id="cb1-6" title="6">  v4 = v1 + v2; <span class="co">// v3,v4 live | registers: (v4,v3)</span></a>
-<a class="sourceLine" id="cb1-7" title="7">  v4 = v4 + v3; <span class="co">// v4 live    | registers: (v4,empty)</span></a>
-<a class="sourceLine" id="cb1-8" title="8"></a>
-<a class="sourceLine" id="cb1-9" title="9">  <span class="cf">return</span> v4;</a></code></pre></div>
-<p>In the line with the register assignment <code>???</code> we run into the issue of having more values than we can keep in registers.</p>
-<p>The solution is rather simple. We <em>spill</em> on of the values from a register to the stack (memory). Loading it again before we need it. How to determine a good choice for WHICH value to move into memory is complicated but not important for this bug.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> v1<span class="op">,</span>v2<span class="op">,</span>v3<span class="op">,</span>v4<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  v1 <span class="op">=</span> <span class="dv">1</span><span class="op">;</span> <span class="co">// v1 live          | registers: (v1,empty)</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  v2 <span class="op">=</span> <span class="dv">2</span><span class="op">;</span> <span class="co">// v1,v2 live       | registers: (v1,v2)</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  v3 <span class="op">=</span> <span class="dv">3</span><span class="op">;</span> <span class="co">// v1,v2,v3 live    | registers: ???</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  v4 <span class="op">=</span> v1 <span class="op">+</span> v2<span class="op">;</span> <span class="co">// v3,v4 live | registers: (v4,v3)</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  v4 <span class="op">=</span> v4 <span class="op">+</span> v3<span class="op">;</span> <span class="co">// v4 live    | registers: (v4,empty)</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> v4<span class="op">;</span></span></code></pre></div>
+<p>In the line with the register assignment <code>???</code> we run into the issue of having more values
+than we can keep in registers.</p>
+<p>The solution is rather simple. We <em>spill</em> on of the values from a register to the stack (memory). Loading it again before we need it.
+How to determine a good choice for WHICH value to move into memory is complicated but not important for this bug.</p>
 <p>Skipping over quite a lot of details our assignments might look something like this now if we include spilling:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb2-1" title="1">  <span class="dt">int</span> v1,v2,v3,v4;</a>
-<a class="sourceLine" id="cb2-2" title="2"></a>
-<a class="sourceLine" id="cb2-3" title="3">  v1 = <span class="dv">1</span>; <span class="co">// v1 live              | registers: (v1,empty)     stack: []</span></a>
-<a class="sourceLine" id="cb2-4" title="4">  <span class="co">// &lt;spill v1&gt;                   | registers: (empty,empty), stack: [v1]</span></a>
-<a class="sourceLine" id="cb2-5" title="5">  v2 = <span class="dv">2</span>; <span class="co">// v1,v2 live           | registers: (empty,v2),    stack: [v1]</span></a>
-<a class="sourceLine" id="cb2-6" title="6">  v3 = <span class="dv">3</span>; <span class="co">// v1,v2,v3 live        | registers: (v3,v2),       stack: [v1]</span></a>
-<a class="sourceLine" id="cb2-7" title="7">  <span class="co">// &lt;spill v3&gt;                   | registers: (empty,v2),    stack: [v1,v3]</span></a>
-<a class="sourceLine" id="cb2-8" title="8">  <span class="co">// &lt;load  v1&gt;                   | registers: (v1,v2),       stack: [v3]</span></a>
-<a class="sourceLine" id="cb2-9" title="9">  v4 = v1 + v2; <span class="co">// v3,v4 live     | registers: (v4,empty),    stack: [v3]</span></a>
-<a class="sourceLine" id="cb2-10" title="10">  <span class="co">// &lt;load  v3&gt;                   | registers: (v4,v3),       stack: []</span></a>
-<a class="sourceLine" id="cb2-11" title="11">  v4 = v4 + v3; <span class="co">// v4 live        | registers: (empty,v4)     stack: []</span></a>
-<a class="sourceLine" id="cb2-12" title="12"></a>
-<a class="sourceLine" id="cb2-13" title="13">  <span class="cf">return</span> v4;</a></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> v1<span class="op">,</span>v2<span class="op">,</span>v3<span class="op">,</span>v4<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  v1 <span class="op">=</span> <span class="dv">1</span><span class="op">;</span> <span class="co">// v1 live              | registers: (v1,empty)     stack: []</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// &lt;spill v1&gt;                   | registers: (empty,empty), stack: [v1]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  v2 <span class="op">=</span> <span class="dv">2</span><span class="op">;</span> <span class="co">// v1,v2 live           | registers: (empty,v2),    stack: [v1]</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  v3 <span class="op">=</span> <span class="dv">3</span><span class="op">;</span> <span class="co">// v1,v2,v3 live        | registers: (v3,v2),       stack: [v1]</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// &lt;spill v3&gt;                   | registers: (empty,v2),    stack: [v1,v3]</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">// &lt;load  v1&gt;                   | registers: (v1,v2),       stack: [v3]</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  v4 <span class="op">=</span> v1 <span class="op">+</span> v2<span class="op">;</span> <span class="co">// v3,v4 live     | registers: (v4,empty),    stack: [v3]</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// &lt;load  v3&gt;                   | registers: (v4,v3),       stack: []</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  v4 <span class="op">=</span> v4 <span class="op">+</span> v3<span class="op">;</span> <span class="co">// v4 live        | registers: (empty,v4)     stack: []</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> v4<span class="op">;</span></span></code></pre></div>
 <h2 id="the-actual-issue.">The actual issue.</h2>
 <p>Currently, just like we can run out of registers we can run out of stack space.</p>
-<p>The reason is that currently the graph allocator preallocates a certain amount of stack space (refered to as spill slots) for us to spill variables.</p>
+<p>The reason is that currently the graph allocator preallocates a certain amount of
+stack space (refered to as spill slots) for us to spill variables.</p>
 <pre><code>-- Construct a set representing free spill slots with maxSpillSlots slots!
     (mkUniqSet [0 .. maxSpillSlots ncgImpl]) </code></pre>
 <p>But if we ever try to spill more variables than we have free slots the compiler just gave up and paniced.</p>
@@ -87,9 +94,13 @@ ghc.exe: panic! (the 'impossible' happened)
 
 Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug</code></pre>
 <h2 id="the-fix">The fix</h2>
-<p>The same issue plagued the default (linear) register allocator at some point but has been <a href="https://git.haskell.org/ghc.git/commitdiff/0b0a41f96cbdaf52aac171c9c58459e3187b0f46">fixed</a> back in 2012.</p>
-<p>We spill to the C stack so we “only” have to bump the stack pointer wenn calling functions and reset it when returning from calls. It’s of course <a href="https://ghc.haskell.org/trac/ghc/ticket/16166">not</a> so <a href="https://ghc.haskell.org/trac/ghc/ticket/15154">simple</a> as there are all kinds of edge cases but most of these got fixed by Phyx already!</p>
-<p>So all that remained was to resize the set for available spill slots instead of panicing. Then we can simply reuse the same machinery the linear allocator uses to make sure there is enough stack space and things work out.</p>
+<p>The same issue plagued the default (linear) register allocator at some point but has been <a href="https://git.haskell.org/ghc.git/commitdiff/0b0a41f96cbdaf52aac171c9c58459e3187b0f46">fixed</a>
+back in 2012.</p>
+<p>We spill to the C stack so we “only” have to bump the stack pointer wenn calling functions and reset it when returning from calls.
+It’s of course <a href="https://ghc.haskell.org/trac/ghc/ticket/16166">not</a> so <a href="https://ghc.haskell.org/trac/ghc/ticket/15154">simple</a> as there are all
+kinds of edge cases but most of these got fixed by Phyx already!</p>
+<p>So all that remained was to resize the set for available spill slots instead of panicing.
+Then we can simply reuse the same machinery the linear allocator uses to make sure there is enough stack space and things work out.</p>
 <p>This mostly involved adding a parameter for spill slots used to functions. So the actual work was <a href="https://gitlab.haskell.org/ghc/ghc/merge_requests/219">not really complicated</a>.</p>
 <p>And soon no sane code will panic when used from the graph register allocator.</p>
 <pre><code>$ /e/ghc/inplace/bin/ghc-stage2.exe SHA.hs -fregs-graph -O -fforce-recomp +RTS
@@ -98,10 +109,14 @@ Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug</code></
 Andi@Horzube MINGW64 /e/graphTest</code></pre>
 <h1 id="other-issues">Other issues</h1>
 <p>This does however NOT make the graph allocator unconditionally better.</p>
-<p>It’s better for most code but the performance can break down completely under certain conditions.<br />
-These <a href="https://ghc.haskell.org/trac/ghc/ticket/7679">performance issues</a> have been there for some time and this won’t fix these.<br />
-But now you can at least see if it works better for your code without running into unfixable panics.</p>
-<p>I also have some ideas to improve the performance of the graph allocator. But properly tackling these will be a another larger project.</p>
+<p>It’s better for most code
+but the performance can break down completely under certain conditions.<br />
+These <a href="https://ghc.haskell.org/trac/ghc/ticket/7679">performance issues</a> have been there for some time
+and this won’t fix these.<br />
+But now you can at least see if it works better for your code
+without running into unfixable panics.</p>
+<p>I also have some ideas to improve the performance of the graph allocator. But properly tackling these will be
+a another larger project.</p>
 
         </div>
         <div id="footer">

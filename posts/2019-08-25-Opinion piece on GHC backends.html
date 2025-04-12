@@ -36,7 +36,10 @@
 <p>There is a never ending discussion about using llvm vs the default backend.<br />
 So here is a quick recap of what we are talking about and my opinions on the matter.</p>
 <h2 id="what-is-a-ghc-backend">What is a GHC backend</h2>
-<p>GHC can produce an executable in multiple ways. In general the pipeline is equivalent up to GHC’s intermediate Cmm representation. From there we produce object code (or executables) via one of three backends:</p>
+<p>GHC can produce an executable in multiple ways.
+In general the pipeline is equivalent up to GHC’s intermediate Cmm
+representation. From there we produce object code (or executables) via
+one of three backends:</p>
 <ul>
 <li>The C backend: Produces C and then use a C compiler.</li>
 <li>The NCG (native code generator) backend: Produces assembly directly.</li>
@@ -55,53 +58,71 @@ It’s used if you want to bootstrap GHC to a new platform and similar scenarios
 <p>This can be enabled via <code>-fllvm</code>.</p>
 <ul>
 <li>It depends on the llvm toolchain</li>
-<li>There is a thin conversion layer from Cmm to llvm ir written in Haskell that is part of GHC.</li>
+<li>There is a thin conversion layer from Cmm to llvm ir written in Haskell
+that is part of GHC.</li>
 <li>Then we pass the result to llvm which itself is written in C++</li>
 </ul>
 <h2 id="llvm-vs-ncg">LLVM vs NCG</h2>
-<p>The main questions for GHC (and users) is really should we use the NCG by default or use LLVM?</p>
-<p>On the face of it the decision seems trivial. LLVM has more people working on it so that should be free work we can use. So why is it not the default?</p>
-<p>On the technical side llvm is quite impressive and a lot of both engineering and research went into it.</p>
-<p>However LLVM was not written for Haskell in particular, and lazy functional languages in general. This means there is a certain friction between the code GHC wants to generate, and the code LLVM expects to receive.</p>
-<p>On the other side the NCG is a product of limited resources and it shows. But it’s 100% tuned for generating Haskell code, which allows it to do a good enough job most of the time.</p>
+<p>The main questions for GHC (and users) is really should we use the
+NCG by default or use LLVM?</p>
+<p>On the face of it the decision seems trivial. LLVM has more people working on it so that should be
+free work we can use. So why is it not the default?</p>
+<p>On the technical side llvm is quite impressive and a lot of both engineering and research
+went into it.</p>
+<p>However LLVM was not written for Haskell in particular, and lazy functional languages in
+general. This means there is a certain friction between the code GHC wants to generate,
+and the code LLVM expects to receive.</p>
+<p>On the other side the NCG is a product of limited resources and it shows.
+But it’s 100% tuned for generating Haskell code, which allows it to do a good enough job
+most of the time.</p>
 <h3 id="pick-your-poison-nofib-numbers">Pick your poison: Nofib Numbers</h3>
 <p>For a start here are the current numbers:</p>
 <table>
 <thead>
-<tr class="header">
+<tr>
 <th style="text-align: right;">Relative difference</th>
 <th>NCG</th>
 <th style="text-align: right;">-fllvm</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td style="text-align: right;">Compile Time (%)</td>
 <td>baseline</td>
 <td style="text-align: right;">+22.7%</td>
 </tr>
-<tr class="even">
+<tr>
 <td style="text-align: right;">Run Time (%)</td>
 <td>baseline</td>
 <td style="text-align: right;">-4.5%</td>
 </tr>
 </tbody>
 </table>
-<p>These are taken by using the same ghc build based on commit <code>6e5dfcd2886d7523cfa059a64b343b22c5da4e97</code> from early August.<br />
+<p>These are taken by using the same ghc build based on commit <code>6e5dfcd2886d7523cfa059a64b343b22c5da4e97</code>
+from early August.<br />
 Then running nofib twice, once using <code>-fllvm</code> and once without.</p>
 <p>They were run on linux using an i7-4790K.</p>
 <p><code>-fllvm</code> certainly compiles quite a bit slower. Meanwhile ncg is somewhat slower at runtime.</p>
-<p>It’s not a huge difference <strong>on average</strong> for runtime. But there are absolutely a few individual benchmarks where llvm stomps ncg performance.</p>
+<p>It’s not a huge difference <strong>on average</strong> for runtime.
+But there are absolutely a few individual benchmarks where llvm stomps ncg performance.</p>
 <p>So for the most part this is a compile time/performance tradeoff. So pick your poison.</p>
 <h3 id="pro-ncg-llvm-makes-assumptions-which-cause-friction-for-ghc">Pro NCG? LLVM makes assumptions which cause friction for GHC</h3>
-<p>The two major hurdles here are <a href="https://gitlab.haskell.org/ghc/ghc/wikis/commentary/rts/storage/heap-objects">tables next to code</a> and the fact that GHC uses two stacks.</p>
+<p>The two major hurdles here are <a href="https://gitlab.haskell.org/ghc/ghc/wikis/commentary/rts/storage/heap-objects">tables next to code</a>
+and the fact that GHC uses two stacks.</p>
 <p>LLVM does not support tables next to code well despite being discussed as far back as <a href="http://lists.llvm.org/pipermail/llvm-dev/2012-February/047555.html">7 years ago</a>.<br />
 The reason for this is the combination of GHC not being an important user of LLVM, and few GHC devs being interested in writing patches for LLVM.<br />
-So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) so that we can among other things place data needed by the gc inline next to the code (Tables next to code). This is bad for all kinds of reasons.</p>
-<p>Somewhat related is the fact that GHC uses two stacks, one being heap allocated. Which is also something LLVM was not designed for and a result llvm does “struggle” with the resulting code.</p>
-<p>The last point of friction comes in the form of compile time. Some of this is lack of optimization for the llvm backend on GHCs side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the shared Cmm pipeline. Some of it is just llvm doing so much more work.</p>
-<p>That being said it’s not clear to what degree this is unavoidable because of the nature of Haskell code. And to what degree this could be solved with redesigns for parts of GHC.</p>
-<p>But from my perspective even just figuring out if LLVM is a suitable long term solution requires a large upfront investment of resources. Something hard to do for a project like GHC which has limited corporate sponsorship.</p>
+So instead GHC uses workarounds. For example we split methods into multiple methods (proc-point splitting) so that we can among other things
+place data needed by the gc inline next to the code (Tables next to code).
+This is bad for all kinds of reasons.</p>
+<p>Somewhat related is the fact that GHC uses two stacks, one being heap allocated. Which is also something LLVM was not designed for
+and a result llvm does “struggle” with the resulting code.</p>
+<p>The last point of friction comes in the form of compile time. Some of this is lack of optimization for the llvm
+backend on GHCs side. Some of it is that LLVM does at least duplicate some of the work GHC performs in the
+shared Cmm pipeline. Some of it is just llvm doing so much more work.</p>
+<p>That being said it’s not clear to what degree this is unavoidable because of the nature of Haskell code.
+And to what degree this could be solved with redesigns for parts of GHC.</p>
+<p>But from my perspective even just figuring out if LLVM is a suitable long term solution requires a
+large upfront investment of resources. Something hard to do for a project like GHC which has limited corporate sponsorship.</p>
 <h3 id="pro-llvm-the-ncg-falls-short-in-certain-areas.">Pro LLVM? The NCG falls short in certain areas.</h3>
 <p>It’s no secret that GHC’s default backend falls short in certain areas:</p>
 <ul>
@@ -112,26 +133,39 @@ So instead GHC uses workarounds. For example we split methods into multiple meth
 <li>Strength reduction for division sometimes falls short.</li>
 <li>And the list goes on.</li>
 </ul>
-<p>While this sounds quite bad it’s good enough for many applications. And even the features which are sorely missing would not be hard to implement. There is simply little investment in these parts of GHC.</p>
-<p>The whole NCG backend received less than 1k commits since <strong>2006</strong>. The result is that many of the pain points could be reasonably solved even with a fairly limited investment.</p>
-<p>In the NCG as a whole there is still a lot of low hanging fruit where someone could take a paper or even just a good idea, combine it with a few weeks/months of time and make GHC produced code faster by a percent or two.</p>
-<p>So I think most of these issues could be solved with less effort than required to make LLVM work well. But overall still a reason for using llvm.</p>
+<p>While this sounds quite bad it’s good enough for many applications. And even the features which are sorely
+missing would not be hard to implement. There is simply little investment in these parts of GHC.</p>
+<p>The whole NCG backend received less than 1k commits since <strong>2006</strong>. The result is that many of the pain
+points could be reasonably solved even with a fairly limited investment.</p>
+<p>In the NCG as a whole there is still a lot of low hanging fruit where someone could take a paper or even just a good idea,
+combine it with a few weeks/months of time and make GHC produced code faster by a percent or two.</p>
+<p>So I think most of these issues could be solved with less effort than required to make LLVM work well.
+But overall still a reason for using llvm.</p>
 <h3 id="pro-llvm-the-llvm-backend-is-here-to-stay">Pro LLVM: The LLVM backend is here to stay</h3>
 <p>The NCG will never beat LLVM on things like register allocation or instruction selection (except maybe by accident).<br />
 This is especially true when it comes to targeting a specific CPU.</p>
-<p>GHC will likely never be best in class that those things, so users depending on them will either use LLVM or FFI. This is ok, but it means the LLVM backend is unlikely to ever go away completely. So why don’t just use it at all times?</p>
+<p>GHC will likely never be best in class that those things, so users depending on them will either use LLVM or FFI.
+This is ok, but it means the LLVM backend is unlikely to ever go away completely. So why don’t just use it at all times?</p>
 <h3 id="pro-ncg-community-issues">Pro NCG: Community issues</h3>
 <p>“We should use llvm!” is common notion even among ghc devs.</p>
-<p>However in practice few people seem interested in actually working on it. This seems odd at first but makes sense since it requires either knowledge of both systems, or the willingness to dive into the workings of llvm.</p>
-<p>Few people are willing to look into code generation issues to begin with, and even fewer are willing to look at issues involving llvm.</p>
-<p>This leads to issues not being fixed like <a href="https://gitlab.haskell.org/ghc/ghc/issues/14251">this</a> which has been broken for two major releases. Or <a href="https://gitlab.haskell.org/ghc/ghc/issues/16354">-fllvm being broken</a> in certain situations.</p>
+<p>However in practice few people seem interested in actually working on it.
+This seems odd at first but makes sense since it requires either knowledge
+of both systems, or the willingness to dive into the workings of llvm.</p>
+<p>Few people are willing to look into code generation issues to begin with,
+and even fewer are willing to look at issues involving llvm.</p>
+<p>This leads to issues not being fixed like <a href="https://gitlab.haskell.org/ghc/ghc/issues/14251">this</a>
+which has been broken for two major releases.
+Or <a href="https://gitlab.haskell.org/ghc/ghc/issues/16354">-fllvm being broken</a> in certain situations.</p>
 <h2 id="my-opinion-pro-llvm---eventually">My Opinion: Pro LLVM - Eventually</h2>
 <p>I think NCG being the default <em>right now</em> is a good thing.<br />
 But no project lives forever, and neither will the NCG backend.</p>
-<p>With ever more resources flowing into llvm, eventually taking advantage of this will be too good of an offer to pass up.<br />
+<p>With ever more resources flowing into llvm, eventually taking advantage of this
+will be too good of an offer to pass up.<br />
 Even if it requires large compromises on GHCs side.</p>
 <p>But I still expect the NCG to be the default for at <em>least</em> a few more years.</p>
-<p>I’ve heard the sentiment that time spent on the NCG is wasted a few times by now. But I strongly disagree. After all any improvement to the NCG will still save countless cycles before a transition to llvm could happen.</p>
+<p>I’ve heard the sentiment that time spent on the NCG is wasted a few times by now.
+But I strongly disagree. After all any improvement to the NCG will still save countless
+cycles before a transition to llvm could happen.</p>
 <p>And who knows, it might never happen at all.<br />
 After all GHC is just another project, and could be superseded by something else before than.</p>
 

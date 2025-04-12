@@ -32,9 +32,14 @@
     
 </div>
 
-<p>This post assumes some knowledge about the <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/HscMain">GHC compilation pipeline</a> ,<a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Cmm">Cmm</a> and a little bit of assembly.</p>
+<p>This post assumes some knowledge about the <a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/HscMain">GHC compilation
+pipeline</a>
+,<a href="https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Cmm">Cmm</a> and a little
+bit of assembly.</p>
 <h1 id="block-layout">Block Layout</h1>
-<p>As expected GHC’s code generator eventually produces a list of basic blocks which are then layout out sequentially before finally being translated to a binary.</p>
+<p>As expected GHC’s code generator eventually produces a list of basic blocks
+which are then layout out sequentially before finally being translated to
+a binary.</p>
 <h2 id="ghcs-current-block-layout-algorithm.">GHCs current block layout algorithm.</h2>
 <p>GHC’s current way of doing so is very basic.</p>
 <ul>
@@ -44,13 +49,16 @@
 <li>For each set flatten it resulting in a list of basic blocks.</li>
 <li>Finally place all of these lists after each other.</li>
 </ul>
-<p>This works well when all important jumps are at the end of a block. However it comes with two problems:</p>
+<p>This works well when all important jumps are at the end of a block.
+However it comes with two problems:</p>
 <ul>
 <li>There is no way to incorporate edge weight information directly.</li>
-<li>Important edges might be represented by conditional jumps not at the end of an block or calls. Both of which are not considered at all.</li>
+<li>Important edges might be represented by conditional jumps not at the end of an block
+or calls. Both of which are not considered at all.</li>
 </ul>
 <h2 id="impact-on-performance">Impact on performance</h2>
-<p>Modern CPUs are complicated so predicting performance is difficult at the best of times. After all we want to optimize for:</p>
+<p>Modern CPUs are complicated so predicting performance is difficult
+at the best of times. After all we want to optimize for:</p>
 <ul>
 <li>Efficiently using L1 cache (64byte lines)</li>
 <li>Efficiently using the fetch window (16Byte)</li>
@@ -63,28 +71,28 @@
 <p>For highlighting the basic issues we don’t have to look far. The factorial function already shows some of the problems with ghcs algorithm. Even if they are NOT an issue for this function,</p>
 <p>Consider the following Cmm code for factorial:</p>
 <h3 id="cmm-code">Cmm Code</h3>
-<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><a class="sourceLine" id="cb1-1" title="1">       c4Ba: stack check</a>
-<a class="sourceLine" id="cb1-2" title="2">           <span class="cf">if</span> ((Sp + -<span class="dv">16</span>) &lt; SpLim) (likely: False) <span class="cf">goto</span> c4Bb; <span class="cf">else</span> <span class="cf">goto</span> c4Bc;</a>
-<a class="sourceLine" id="cb1-3" title="3">       c4Bb: run gc <span class="cf">if</span> stack exhausted</a>
-<a class="sourceLine" id="cb1-4" title="4">           R2 = R2;</a>
-<a class="sourceLine" id="cb1-5" title="5">           R1 = $wfactorial_closure;</a>
-<a class="sourceLine" id="cb1-6" title="6">           call (stg_gc_fun)(R2, R1) args: <span class="dv">8</span>, res: <span class="dv">0</span>, upd: <span class="dv">8</span>;</a>
-<a class="sourceLine" id="cb1-7" title="7">       c4Bc: compare against zero</a>
-<a class="sourceLine" id="cb1-8" title="8">           <span class="cf">if</span> (R2 != <span class="dv">0</span>) <span class="cf">goto</span> c4B8; <span class="cf">else</span> <span class="cf">goto</span> c4B9;</a>
-<a class="sourceLine" id="cb1-9" title="9">       c4B8: call factorial</a>
-<a class="sourceLine" id="cb1-10" title="10">           I64[Sp - <span class="dv">16</span>] = c4Bh;</a>
-<a class="sourceLine" id="cb1-11" title="11">           _s4A8::I64 = R2;</a>
-<a class="sourceLine" id="cb1-12" title="12">           R2 = R2 - <span class="dv">1</span>;</a>
-<a class="sourceLine" id="cb1-13" title="13">           I64[Sp - <span class="dv">8</span>] = _s4A8::I64;</a>
-<a class="sourceLine" id="cb1-14" title="14">           Sp = Sp - <span class="dv">16</span>;</a>
-<a class="sourceLine" id="cb1-15" title="15">           call $wfactorial_info(R2) returns to c4Bh, args: <span class="dv">8</span>, res: <span class="dv">8</span>, upd: <span class="dv">8</span>;</a>
-<a class="sourceLine" id="cb1-16" title="16">       c4Bh: x * factorial (x-<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb1-17" title="17">           R1 = I64[Sp + <span class="dv">8</span>] * R1;</a>
-<a class="sourceLine" id="cb1-18" title="18">           Sp = Sp + <span class="dv">16</span>;</a>
-<a class="sourceLine" id="cb1-19" title="19">           call (P64[Sp])(R1) args: <span class="dv">8</span>, res: <span class="dv">0</span>, upd: <span class="dv">8</span>;</a>
-<a class="sourceLine" id="cb1-20" title="20">       c4B9: x = <span class="dv">1</span></a>
-<a class="sourceLine" id="cb1-21" title="21">           R1 = <span class="dv">1</span>;</a>
-<a class="sourceLine" id="cb1-22" title="22">           call (P64[Sp])(R1) args: <span class="dv">8</span>, res: <span class="dv">0</span>, upd: <span class="dv">8</span>;</a></code></pre></div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>       c4Ba<span class="op">:</span> stack check</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>           <span class="cf">if</span> <span class="op">((</span>Sp <span class="op">+</span> <span class="op">-</span><span class="dv">16</span><span class="op">)</span> <span class="op">&lt;</span> SpLim<span class="op">)</span> <span class="op">(</span>likely<span class="op">:</span> False<span class="op">)</span> <span class="cf">goto</span> c4Bb<span class="op">;</span> <span class="cf">else</span> <span class="cf">goto</span> c4Bc<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>       c4Bb<span class="op">:</span> run gc <span class="cf">if</span> stack exhausted</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>           R2 <span class="op">=</span> R2<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>           R1 <span class="op">=</span> $wfactorial_closure<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>           call <span class="op">(</span>stg_gc_fun<span class="op">)(</span>R2<span class="op">,</span> R1<span class="op">)</span> args<span class="op">:</span> <span class="dv">8</span><span class="op">,</span> res<span class="op">:</span> <span class="dv">0</span><span class="op">,</span> upd<span class="op">:</span> <span class="dv">8</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>       c4Bc<span class="op">:</span> compare against zero</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>           <span class="cf">if</span> <span class="op">(</span>R2 <span class="op">!=</span> <span class="dv">0</span><span class="op">)</span> <span class="cf">goto</span> c4B8<span class="op">;</span> <span class="cf">else</span> <span class="cf">goto</span> c4B9<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>       c4B8<span class="op">:</span> call factorial</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>           I64<span class="op">[</span>Sp <span class="op">-</span> <span class="dv">16</span><span class="op">]</span> <span class="op">=</span> c4Bh<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>           _s4A8<span class="op">::</span>I64 <span class="op">=</span> R2<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>           R2 <span class="op">=</span> R2 <span class="op">-</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>           I64<span class="op">[</span>Sp <span class="op">-</span> <span class="dv">8</span><span class="op">]</span> <span class="op">=</span> _s4A8<span class="op">::</span>I64<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>           Sp <span class="op">=</span> Sp <span class="op">-</span> <span class="dv">16</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>           call $wfactorial_info<span class="op">(</span>R2<span class="op">)</span> returns to c4Bh<span class="op">,</span> args<span class="op">:</span> <span class="dv">8</span><span class="op">,</span> res<span class="op">:</span> <span class="dv">8</span><span class="op">,</span> upd<span class="op">:</span> <span class="dv">8</span><span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>       c4Bh<span class="op">:</span> x <span class="op">*</span> factorial <span class="op">(</span>x<span class="op">-</span><span class="dv">1</span><span class="op">)</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>           R1 <span class="op">=</span> I64<span class="op">[</span>Sp <span class="op">+</span> <span class="dv">8</span><span class="op">]</span> <span class="op">*</span> R1<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>           Sp <span class="op">=</span> Sp <span class="op">+</span> <span class="dv">16</span><span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>           call <span class="op">(</span>P64<span class="op">[</span>Sp<span class="op">])(</span>R1<span class="op">)</span> args<span class="op">:</span> <span class="dv">8</span><span class="op">,</span> res<span class="op">:</span> <span class="dv">0</span><span class="op">,</span> upd<span class="op">:</span> <span class="dv">8</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>       c4B9<span class="op">:</span> x <span class="op">=</span> <span class="dv">1</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>           R1 <span class="op">=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>           call <span class="op">(</span>P64<span class="op">[</span>Sp<span class="op">])(</span>R1<span class="op">)</span> args<span class="op">:</span> <span class="dv">8</span><span class="op">,</span> res<span class="op">:</span> <span class="dv">0</span><span class="op">,</span> upd<span class="op">:</span> <span class="dv">8</span><span class="op">;</span></span></code></pre></div>
 <h3 id="control-flow">Control Flow</h3>
 <p><img src="../resources/cfg1.svg" title="Factorial CFG" /></p>
 <h3 id="actual-control-flow">Actual Control Flow</h3>
@@ -115,39 +123,45 @@
 <p>Cmm does not know that the argument is usually not null so placing <code>ret 1</code> after the comparison is bad but the best we can do.</p>
 <p>However the current algorithm also can’t be easily expanded even if we had this information. After all, only one jump per block is ever considered. And even after that hurdle we still have no way to assign weights to edges.</p>
 <p>Ideally we would also want to place <code>call factorial</code> next to <code>ret (x*call_result)</code>. After all there is clearly an edge between these blocks.</p>
-<p>It’s not an big issue for factorial in particular. But if we call a small function from within a loop this would be advantageous.</p>
+<p>It’s not an big issue for factorial in particular. But if we call a small function from
+within a loop this would be advantageous.</p>
 <h2 id="what-i-looked-into">What I looked into:</h2>
-<p>If we want to use the information present in Cmm we have to make it available when it matters. Which is a few steps down where cmm has been turned into platform dependent instructions already.</p>
+<p>If we want to use the information present in Cmm we have to make it available when it matters. Which is a few steps down where
+cmm has been turned into platform dependent instructions already.</p>
 <p>So I started out with building a CFG which is essentially the CmmGraph stripped of the actual code.</p>
 <h3 id="building-a-cfg-from-cmm">Building a CFG from Cmm</h3>
-<p>We simply start at the entry block and recursivly add all edges. But further we also weigh them by the type of jump.</p>
+<p>We simply start at the entry block and recursivly add all edges.
+But further we also weigh them by the type of jump.</p>
 <table>
 <thead>
-<tr class="header">
+<tr>
 <th>Construct</th>
 <th style="text-align: center;">Weight(s)</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td>goto</td>
 <td style="text-align: center;">100</td>
 </tr>
-<tr class="even">
+<tr>
 <td>If/Else</td>
 <td style="text-align: center;">49/51</td>
 </tr>
-<tr class="odd">
+<tr>
 <td>If/Else with likelyhood</td>
 <td style="text-align: center;">10/90</td>
 </tr>
-<tr class="even">
+<tr>
 <td>Call with return label</td>
 <td style="text-align: center;">10</td>
 </tr>
 </tbody>
 </table>
-<p>The main issue with this is that we have to update the cfg with any changes to the control flow the asm passes introduce after we have created the initial cfg. While it was quiet annoying to track down all the places where this happens in the end with some persistence I found all of these.<sup>At least for x64 …<sup>I hope …</sup> </sup></p>
+<p>The main issue with this is that we have to update the cfg with any changes to
+the control flow the asm passes introduce after we have created the initial cfg.
+While it was quiet annoying to track down all the places where this happens in the
+end with some persistence I found all of these.<sup>At least for x64 …<sup>I hope …</sup> </sup></p>
 <p>For x64 these passes change the cfg:</p>
 <h4 id="linear-register-allocation">Linear register allocation</h4>
 <p>Here we add blocks when we join two control flow paths. I solved this by tracking inserted nodes in the register allocator state and updating the cfg afterwards.</p>
@@ -155,11 +169,14 @@
 <p>Initially surprisingly when we have code like below operating on floats.</p>
 <pre><code>  if (a &lt; b) then { goto L1; } else { goto L2; }</code></pre>
 <p>We insert a new block <code>L3: goto L2</code> and the generated code jumps to L3 if either (a &lt; b) or if the floats are unordered. Floating point is truely a headache.</p>
-<p>The reason is that if (a,b) is unordered we consider a &lt; b to be false. So we have to check if they are unordered BEFORE we check if a &lt; b.</p>
-<p>To make it even more complicated we also can’t generate a jump directly to the false branch for the parity check. In the place where we generate the floating point comparison we don’t know the label of the false branch.</p>
+<p>The reason is that if (a,b) is unordered we consider a &lt; b to be false.
+So we have to check if they are unordered BEFORE we check if a &lt; b.</p>
+<p>To make it even more complicated we also can’t generate a jump directly to the false branch for the parity check.
+In the place where we generate the floating point comparison we don’t know the label of the false branch.</p>
 <p>Long story short. It’s a mess.</p>
 <h4 id="shortcutting">Shortcutting</h4>
-<p>Shortcutting is removing blocks which only transfer controlflow to another block. So we reduce:</p>
+<p>Shortcutting is removing blocks which only transfer controlflow to another block.
+So we reduce:</p>
 <pre><code>A: ... ; goto B;
 B: goto C;
 C: ...</code></pre>
@@ -167,10 +184,16 @@ C: ...</code></pre>
 <p>This was obvious and the easiest place to adjust.</p>
 <h3 id="place-blocks-based-on-this-graph">Place blocks based on this graph</h3>
 <p>We can then construct placements based on this graph.</p>
-<p>The basic idea is to find many long sequences of blocks which should be placed in series. Then place these next to each other. Very much alike the current algorithm does but based on a weighted digraph instead.</p>
+<p>The basic idea is to find many long sequences of blocks which should be placed
+in series. Then place these next to each other. Very much alike the current
+algorithm does but based on a weighted digraph instead.</p>
 <p><a href="../resources/cfg2.svg" title="Example from NoFib">This is what a reasonable complex graph looks like</a></p>
-<p>The best sequences intuitively have heavy edges. So what I ended up doing is visiting each block in reverse postorder and either append it to an existing sequence if it’s a heavy edge. Or create a new sequence consisting of just this block.</p>
-<p>Since this is a very greedy algorithm it misses some cases. So there is some more edge case handling involved. But it doesn’t change the fundamental approach.</p>
+<p>The best sequences intuitively have heavy edges.
+So what I ended up doing is visiting each block in reverse postorder and either
+append it to an existing sequence if it’s a heavy edge. Or create a new sequence consisting of
+just this block.</p>
+<p>Since this is a very greedy algorithm it misses some cases. So there is some more edge case handling
+involved. But it doesn’t change the fundamental approach.</p>
 <h3 id="preliminary-results">Preliminary results:</h3>
 <p>Which is disappointing. I’ve combined a earlier version of my layout branch with my patch to <a href="https://phabricator.haskell.org/D4327">detect error branches as unlikely and recursion as likely</a> which gave a improvment of -0.8% which is nice.</p>
 <p>However as a standalone patch it currently makes performance worse:</p>
@@ -181,13 +204,18 @@ C: ...</code></pre>
 <pre><code>        Min          -0.1%      0.0%     -1.7%     -3.2%      0.0%
         Max          +0.0%      0.0%    +22.4%    +20.8%      0.0%</code></pre>
 <p>Geometric Mean -0.0% -0.0% +1.1% +0.8% -0.0%</p>
-<p>FS seems like it is just a edge case for the new layout algorithm. With lambda I have no idea what is up. The benchmark basically runs two functions: <code>main = do { mainSimple ; mainMonad }</code>.</p>
+<p>FS seems like it is just a edge case for the new layout algorithm.
+With lambda I have no idea what is up. The benchmark basically runs two functions: <code>main = do { mainSimple ; mainMonad }</code>.</p>
 <p>It seems like some edge case I didn’t consider. But so far I haven’t really been able to pinpoint why it get’s faster by so much.</p>
-<p>Removing either one the new layout code is faster. Using -XStrict[Data] the new one is faster. However when padding the whole executable to change alignment the difference stays about the same. So it doesn’t seem to be an alignment issue.</p>
+<p>Removing either one the new layout code is faster. Using -XStrict[Data] the new one is faster.
+However when padding the whole executable to change alignment the difference stays about the same. So it doesn’t seem to be an alignment issue.</p>
 <p>Performance counters indicate the DSB buffer being the culprint. But I haven’t yet been able to find out how so.</p>
 <h3 id="conclusion">Conclusion</h3>
-<p>I’ve dug pretty deep into this. But with the results as they are this does not seem ready for production. Given the time constraints of GSOC I will for now shelf my patch and probably revisit it when I work on likelyhood information again.</p>
-<p>I will put the patch up on phabricator once I have cleaned it up a bit. If you have ideas or feedback hit me on IRC or comment on <a href="https://ghc.haskell.org/trac/ghc/ticket/15124">trac #15124</a>.</p>
+<p>I’ve dug pretty deep into this. But with the results as they are this does not seem ready for production.
+Given the time constraints of GSOC I will for now shelf my patch and probably revisit it when I work on
+likelyhood information again.</p>
+<p>I will put the patch up on phabricator once I have cleaned it up a bit. If you have ideas or feedback hit me on IRC
+or comment on <a href="https://ghc.haskell.org/trac/ghc/ticket/15124">trac #15124</a>.</p>
 
         </div>
         <div id="footer">
