@@ -3,3 +3,4 @@ _site
 .stack-work
 publish.cmd
 .vs
+dist-newstyle
