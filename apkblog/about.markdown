@@ -2,12 +2,11 @@
 title: About
 ---
 
-Hi I'm Andreas Klebinger. I'm interested in Haskell, Compilers, D&D and most other things if presented well.
+Hi I'm Andreas Klebinger. I'm interested in Haskell, Compilers, D&D and occasionally
+get nerd sniped by other interests.
 
-I currently reside near Vienna, Austria where I work from home
-and study Software Engineering at TU Vienna on the side.
+I currently reside near Vienna, Austria. I studied at TU Vienna but transitioned
+into remote work during the pandemic. These days I mostly work on maintaining GHC
+with Well-Typed.
 
-You can reach me on Twitter @AndreasK_Tweets.  
-I also frequent #ghc on freenode (AndreasK).
-
-You can also reach me at firstname . lastname @ gmx.at
+I'm on Bluesky as AndreasPK but you can also reach me per mail on lastname . firstname @ gmx.at
