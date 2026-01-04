@@ -78,8 +78,8 @@ a counter and unconditionally incrementing the unique whenever we call <code>uni
 <li>Simply do an atomic increment every time we call uniqAway, using the new value as a unique.</li>
 </ul>
 <p>That is something like:</p>
-<pre><code>uniqAway :: InScopeSet -&gt; Var -&gt; Var
-uniqAway in_scope var = setVarUnique var (atomic_increment some_ref)</code></pre>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ot">uniqAway ::</span> <span class="dt">InScopeSet</span> <span class="ot">-&gt;</span> <span class="dt">Var</span> <span class="ot">-&gt;</span> <span class="dt">Var</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>uniqAway in_scope var <span class="ot">=</span> setVarUnique var (atomic_increment some_ref)</span></code></pre></div>
 <h2 id="performance-estimates">Performance estimates</h2>
 <h3 id="atomic-performance">Atomic performance</h3>
 <p>To a first approximation the cost of the atomic variant is easy to quantify.
@@ -181,24 +181,24 @@ But the 9ns here amount to something closer to 20cycles. What is going on?</p>
 This means branch prediction and prefetching will likely be optimal voiding our assumptions.</p>
 <p>Let’s beef up our benchmark to confirm this. Instead of looking for the same value in every iteration we can
 look up a random value in every iteration:</p>
-<pre><code>    let lookupm, lookupr :: IO (Maybe ())
-        lookupm = randomIO &gt;&gt;= \x -&gt; pure (IM.lookup x m)
-        lookupr = randomIO &gt;&gt;= \x -&gt; pure (IM.lookup x rm)
-
-
-    defaultMain
-        [   bench &quot;overhead&quot; $ whnfIO (randomIO :: IO Int),
-        bgroup
-            &quot;lookups-det&quot;
-            [ bench &quot;r1&quot;  $ whnfIO lookupm
-            , bench &quot;r2&quot; $ whnfIO lookupm
-            ],
-         bgroup
-            &quot;lookups-map-random&quot;
-            [ bench &quot;r1&quot;  $ whnfIO lookupr
-            , bench &quot;r2&quot; $ whnfIO lookupr
-            ]
-        ]</code></pre>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> lookupm,<span class="ot"> lookupr ::</span> <span class="dt">IO</span> (<span class="dt">Maybe</span> ())</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>        lookupm <span class="ot">=</span> randomIO <span class="op">&gt;&gt;=</span> \x <span class="ot">-&gt;</span> <span class="fu">pure</span> (IM.lookup x m)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>        lookupr <span class="ot">=</span> randomIO <span class="op">&gt;&gt;=</span> \x <span class="ot">-&gt;</span> <span class="fu">pure</span> (IM.lookup x rm)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    defaultMain</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        [   bench <span class="st">&quot;overhead&quot;</span> <span class="op">$</span> whnfIO (<span class="ot">randomIO ::</span> <span class="dt">IO</span> <span class="dt">Int</span>),</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>        bgroup</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;lookups-det&quot;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>            [ bench <span class="st">&quot;r1&quot;</span>  <span class="op">$</span> whnfIO lookupm</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>            , bench <span class="st">&quot;r2&quot;</span> <span class="op">$</span> whnfIO lookupm</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>            ],</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>         bgroup</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;lookups-map-random&quot;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>            [ bench <span class="st">&quot;r1&quot;</span>  <span class="op">$</span> whnfIO lookupr</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>            , bench <span class="st">&quot;r2&quot;</span> <span class="op">$</span> whnfIO lookupr</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>            ]</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>        ]</span></code></pre></div>
 <p>And if we look at the results:</p>
 <pre><code>benchmarking overhead
 mean                 32.66 ns   (31.67 ns .. 33.91 ns)

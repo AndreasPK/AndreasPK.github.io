@@ -60,7 +60,7 @@ To make this sound in a multithreaded setting we have to use atomics. So the log
 
 That is something like:
 
-```
+```haskell
 uniqAway :: InScopeSet -> Var -> Var
 uniqAway in_scope var = setVarUnique var (atomic_increment some_ref)
 ```
@@ -199,7 +199,7 @@ This means branch prediction and prefetching will likely be optimal voiding our 
 Let's beef up our benchmark to confirm this. Instead of looking for the same value in every iteration we can
 look up a random value in every iteration:
 
-```
+```haskell
     let lookupm, lookupr :: IO (Maybe ())
         lookupm = randomIO >>= \x -> pure (IM.lookup x m)
         lookupr = randomIO >>= \x -> pure (IM.lookup x rm)

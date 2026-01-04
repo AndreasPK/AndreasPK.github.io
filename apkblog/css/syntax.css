@@ -2,13 +2,6 @@ table.sourceCode,
 tr.sourceCode,
 td.lineNumbers,
 td.sourceCode,
-table.sourceCode pre {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    vertical-align: baseline;
-    border: none
-}
 
 td.lineNumbers {
     border-right: 1px solid #AAAAAA;
@@ -74,4 +67,18 @@ td.sourceCode {
 .sourceCode span.er {
     color: red;
     font-weight: bold
+}
+
+table.sourceCode pre {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    vertical-align: baseline;
+    border: none;
+    overflow-x: auto;
+}
+
+.haskell {
+    line-height:normal;
+    font-size: smaller;
 }
