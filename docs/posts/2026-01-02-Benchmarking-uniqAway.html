@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <title>Andreas Klebingers Blog - uniqAway: Benchmarking odd things</title>
+        <link rel="stylesheet" type="text/css" href="../css/default.css" />
+        <link rel="stylesheet" type="text/css" href="../css/custom.css" />
+        <link rel="stylesheet" type="text/css" href="../css/syntax.css" />
+
+    </head>
+    <body>
+        <header id="header">
+            <hgroup id="logo">
+                <a href="../index.html">Andreas Klebingers Blog</a>
+            </hgroup>
+            <nav id="navigation">
+                <a href="../index.html">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../work.html">Work with me</a>
+                <a href="../archive.html">Archive</a>
+                <a href="../ghc-week.html">GHC Week!</a>
+            </nav>
+        </header>
+
+
+        <div id="content">
+            <h1>uniqAway: Benchmarking odd things</h1>
+
+            <div class="info">
+    Posted on January  2, 2026
+    
+        by Andreas Klebinger
+    
+</div>
+
+<p>GHC uses a nifty <code>uniqAway</code> function to make up new variables “names” on the fly.
+Today I woke up wondering if we could replace the current mechanism with atomics,
+and here are my musings and some benchmarks on the topic.</p>
+<h1 id="the-contenders">The contenders</h1>
+<h3 id="uniqaway">uniqAway</h3>
+<p>When GHC inlines code it needs to ensure the variables introduced by the inlined code
+don’t clash with existing variables in scope. In order to accomplish that we
+rely on a set of variables already in scope, potentially
+cloning the variable in all but it’s “name”. GHC internally uses <code>Uniques</code> to
+represent variables which are basically just integers.</p>
+<p>The algorithm to do this is implemented by a function called <code>uniqAway</code> and is fairly
+simple:</p>
+<ul>
+<li>If the variables unique doesn’t clash with the existing scope simply use it as-is.</li>
+<li>If the variables unique clashes with something already in scope replace the unique
+of the variable with the next free one.</li>
+</ul>
+<p>We “simply” determine the next free unique by taking the highest unique in scope and adding one.</p>
+<p>The actual code, omitting some of the irrelevant details, looks like this:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ot">uniqAway ::</span> <span class="dt">InScopeSet</span> <span class="ot">-&gt;</span> <span class="dt">Var</span> <span class="ot">-&gt;</span> <span class="dt">Var</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>uniqAway in_scope var</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- Make a new one</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">|</span> var <span class="ot">`elemInScopeSet`</span> in_scope <span class="ot">=</span> setVarUnique var (unsafeGetFreshLocalUnique in_scope)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- Reuse variable as-is.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="op">|</span> <span class="fu">otherwise</span>                     <span class="ot">=</span> var</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="ot">unsafeGetFreshLocalUnique ::</span> <span class="dt">InScopeSet</span> <span class="ot">-&gt;</span> <span class="dt">Unique</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>unsafeGetFreshLocalUnique (<span class="dt">InScope</span> set)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="op">|</span> <span class="dt">Just</span> (uniq,_) <span class="ot">&lt;-</span> IntMap.lookupLT maxLocalUnique set</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  , <span class="kw">let</span> uniq' <span class="ot">=</span> mkLocalUnique uniq</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  , <span class="fu">not</span> <span class="op">$</span> uniq' <span class="ot">`ltUnique`</span> minLocalUnique</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> incrUnique uniq'</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="op">|</span> <span class="fu">otherwise</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="ot">=</span> minLocalUnique</span></code></pre></div>
+<h3 id="atomics">Atomics</h3>
+<p>Since Word64 for our purposes is basically infinite we could achieve the same thing using
+a counter and unconditionally incrementing the unique whenever we call <code>uniqAway</code>.</p>
+<p>To make this sound in a multithreaded setting we have to use atomics. So the logic would be something like:</p>
+<ul>
+<li>Have a global variable holding the next unique.</li>
+<li>Simply do an atomic increment every time we call uniqAway, using the new value as a unique.</li>
+</ul>
+<p>That is something like:</p>
+<pre><code>uniqAway :: InScopeSet -&gt; Var -&gt; Var
+uniqAway in_scope var = setVarUnique var (atomic_increment some_ref)</code></pre>
+<h2 id="performance-estimates">Performance estimates</h2>
+<h3 id="atomic-performance">Atomic performance</h3>
+<p>To a first approximation the cost of the atomic variant is easy to quantify.
+It’s always allocating a fresh <code>Var</code> plus the cost of atomic increment.</p>
+<p>Ignoring GC for now this mean a few memory writes for the allocation and then somewhere in the range of 25-400 cycles for the atomic.
+This is a huge range, but it depends a lot on the number of cores, contention and so on.</p>
+<p>Let’s just hand wave slightly and assume we get somewhere around 30 cycles in the common case.</p>
+<h3 id="intmap-performance">IntMap performance</h3>
+<p>What is the cost of a set lookup? IntMaps are essentially binary trees, they have some tricks but
+treating them like simple binary trees we get a depth of <code>log(n)</code>.</p>
+<p>Assuming InScopeSet is of a modest size we assume we need to recurse 8 steps into the tree to check for membership
+or find the largest/smallest element. Finding the smallest/largest element works very similar to
+membership tests perf wise so let’s only consider performance of membership testing for now.</p>
+<p>When checking for membership we have to:</p>
+<ul>
+<li>Compare the key with the current node in the tree.</li>
+<li>Branch on the result. Either descending into one of the subtrees or returning right away.</li>
+</ul>
+<p>This means for every level we incur:
+* Two branches, one of them being unpredictable
+* Chasing down one pointer for a subtree
+* Some reads/bit fiddling.</p>
+<p>For a relatively new CPU let’s assume we pay:
+* 4 cycles for a read (from L1 cache)
+* 10 cycles for a stall upon failed branch prediction.</p>
+<p>We incur the read delay once per level, and with 50% hit rate for branch prediction the miss prediction penalty
+for every other level. That means we can expect a cost of <code>~(10*4 + 8*4)</code> = ~72 cycles as a lower bound for the average cost of membership tests.</p>
+<p>This is about twice our hand wavy estimate for atomics. So perhaps promising! And that only covers the good case where
+there is no shadowing. We have to do about twice as much work if there actually is shadowing.</p>
+<p>Seems like there is a good chance for atomics to outperform the <code>IntMap</code> approach.</p>
+<h2 id="benchmarking">Benchmarking</h2>
+<p>The first rule of any performance work is <strong>measure</strong>. It’s all good to huff and puff
+about our cool new way to speed things up. But let’s come up with some concrete benchmarks
+to check our assumptions.</p>
+<h3 id="intmap-benchmarks">IntMap benchmarks</h3>
+<p>Let’s start by benchmarking IntMap performance:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Criterion.Main</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.IntMap.Strict</span> <span class="kw">as</span> <span class="dt">IM</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">System.Random</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Control.Monad</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Control.DeepSeq</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="ot">main ::</span> <span class="dt">IO</span> ()</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> m <span class="ot">=</span> IM.fromList <span class="op">$</span> <span class="fu">zip</span> [<span class="dv">1</span><span class="op">..</span><span class="dv">256</span>] (<span class="fu">repeat</span> ())</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    rl <span class="ot">&lt;-</span> replicateM <span class="dv">256</span> (<span class="ot">randomIO ::</span> <span class="dt">IO</span> <span class="dt">Int</span>)</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> rm <span class="ot">=</span> IM.fromList <span class="op">$</span> <span class="fu">zip</span> rl (<span class="fu">repeat</span> ())</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">pure</span> <span class="op">$!</span> rnf (m,rm)</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> lookupm x <span class="ot">=</span> IM.lookup x m</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> lookupr x <span class="ot">=</span> IM.lookup x m</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    defaultMain</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        [   bench <span class="st">&quot;overhead&quot;</span> <span class="op">$</span> whnf <span class="fu">id</span> (),</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>        bgroup</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;lookups-det&quot;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>            [ bench <span class="st">&quot;1&quot;</span>  <span class="op">$</span> whnf lookupm <span class="dv">1</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>            , bench <span class="st">&quot;11&quot;</span> <span class="op">$</span> whnf lookupm <span class="dv">11</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>            ],</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>         bgroup</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;lookups-map-random&quot;</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>            [ bench <span class="st">&quot;1&quot;</span>  <span class="op">$</span> whnf lookupr <span class="dv">1</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>            , bench <span class="st">&quot;11&quot;</span> <span class="op">$</span> whnf lookupr <span class="dv">11</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>            ]</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>        ]</span></code></pre></div>
+<p>We are doing this for fun so we don’t follow all good rules of benchmarking.
+This means we have relatively noisy results from my notebook which criterion dutifully warns us about:</p>
+<pre><code>cabal run bench -- -L10
+benchmarking overhead
+time                 3.106 ns   (3.019 ns .. 3.217 ns)
+                     0.995 R²   (0.992 R² .. 0.997 R²)
+mean                 3.204 ns   (3.145 ns .. 3.272 ns)
+std dev              242.5 ps   (211.9 ps .. 289.6 ps)
+variance introduced by outliers: 88% (severely inflated)</code></pre>
+<p>If we were the ensure a quite stable system we could eliminate this noise. But since
+this is mostly for fun and we only care about orders of magnitude for now this is fine.</p>
+<p>While criterion will keep complaining I will omit the noise and only report means
+for the rest of this post. The notebook rocks some 2.3Ghz CPU but as I said we don’t
+care too much about the exact numbers right now.</p>
+<p>Here are typical results of the above benchmark on that machine:</p>
+<pre><code>benchmarking overhead
+mean                 3.204 ns   (3.145 ns .. 3.272 ns)
+
+benchmarking lookups-det/1
+mean                 12.38 ns   (12.25 ns .. 12.57 ns)
+
+benchmarking lookups-det/11
+mean                 15.38 ns   (15.21 ns .. 15.74 ns)
+
+benchmarking lookups-map-random/1
+mean                 12.31 ns   (12.11 ns .. 12.60 ns)
+
+benchmarking lookups-map-random/11
+mean                 15.11 ns   (14.96 ns .. 15.31 ns)</code></pre>
+<p>Given 2.3Ghz this seems too good to be true. I claimed a lower bound of ~70cycles for the average run.
+But the 9ns here amount to something closer to 20cycles. What is going on?</p>
+<p>My prediction is fairly simple: We are running the <em>same</em> lookup in a loop for our benchmark.
+This means branch prediction and prefetching will likely be optimal voiding our assumptions.</p>
+<p>Let’s beef up our benchmark to confirm this. Instead of looking for the same value in every iteration we can
+look up a random value in every iteration:</p>
+<pre><code>    let lookupm, lookupr :: IO (Maybe ())
+        lookupm = randomIO &gt;&gt;= \x -&gt; pure (IM.lookup x m)
+        lookupr = randomIO &gt;&gt;= \x -&gt; pure (IM.lookup x rm)
+
+
+    defaultMain
+        [   bench &quot;overhead&quot; $ whnfIO (randomIO :: IO Int),
+        bgroup
+            &quot;lookups-det&quot;
+            [ bench &quot;r1&quot;  $ whnfIO lookupm
+            , bench &quot;r2&quot; $ whnfIO lookupm
+            ],
+         bgroup
+            &quot;lookups-map-random&quot;
+            [ bench &quot;r1&quot;  $ whnfIO lookupr
+            , bench &quot;r2&quot; $ whnfIO lookupr
+            ]
+        ]</code></pre>
+<p>And if we look at the results:</p>
+<pre><code>benchmarking overhead
+mean                 32.66 ns   (31.67 ns .. 33.91 ns)
+
+benchmarking lookups-det/r1
+mean                 66.32 ns   (65.41 ns .. 67.52 ns)
+
+benchmarking lookups-det/r2
+mean                 66.11 ns   (64.91 ns .. 67.35 ns)
+
+benchmarking lookups-map-random/r1
+mean                 79.40 ns   (78.24 ns .. 81.20 ns)
+
+benchmarking lookups-map-random/r2
+mean                 77.47 ns   (76.80 ns .. 78.51 ns)</code></pre>
+<p>We can notice a few things. First generating random numbers is expensive! ~32ns just for that.
+We could do better but we will accept that for now.</p>
+<p>Beyond this we can see cost of lookups went from 9-12ns to 34-47ns after we consider overhead!
+That’s both a huge increase but also nicely in line with our estimates. On my notebooks this
+was ~93 cycles which is surprisingly close to my estimation of the lower bound
+at ~70 cycles! So it seems to be in the right ballpark.</p>
+<h3 id="atomics-1">Atomics</h3>
+<p>Now let’s see if our ideas about atomics also hold up.</p>
+<p>We can construct a similar benchmark for atomics:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE MagicHash #-}</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE UnboxedTuples #-}</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Criterion.Main</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Exts</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.IO</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">BA</span> <span class="ot">=</span> <span class="dt">BA</span> (<span class="dt">MutableByteArray</span><span class="op">#</span> <span class="dt">RealWorld</span>)</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="ot">atomicIncrementByteArray ::</span> <span class="dt">BA</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Int</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>atomicIncrementByteArray (<span class="dt">BA</span> ba) <span class="ot">=</span> <span class="dt">IO</span> <span class="op">$</span> \s <span class="ot">-&gt;</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">case</span> fetchAddIntArray<span class="op">#</span> ba <span class="dv">0</span><span class="op">#</span> <span class="dv">1</span><span class="op">#</span> s <span class="kw">of</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>        (<span class="op">#</span> s2, i <span class="op">#</span>) <span class="ot">-&gt;</span> (<span class="op">#</span> s2, <span class="dt">I</span><span class="op">#</span> i <span class="op">#</span>)</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a><span class="ot">baAddr ::</span> <span class="dt">BA</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Word</span></span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>baAddr (<span class="dt">BA</span> ba) <span class="ot">=</span> <span class="dt">IO</span> <span class="op">$</span> \s <span class="ot">-&gt;</span></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">case</span> mutableByteArrayContents<span class="op">#</span> ba <span class="kw">of</span></span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>        addr <span class="ot">-&gt;</span> (<span class="op">#</span> s, <span class="dt">W</span><span class="op">#</span> (int2Word<span class="op">#</span> (addr2Int<span class="op">#</span> addr)) <span class="op">#</span>)</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a><span class="ot">main ::</span> <span class="dt">IO</span> ()</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>    ba <span class="ot">&lt;-</span> <span class="dt">IO</span> (\s <span class="ot">-&gt;</span> <span class="kw">case</span> newPinnedByteArray<span class="op">#</span> <span class="dv">128</span><span class="op">#</span> s <span class="kw">of</span> (<span class="op">#</span> s2, ba <span class="op">#</span>) <span class="ot">-&gt;</span> (<span class="op">#</span> s2, <span class="dt">BA</span> ba <span class="op">#</span>))</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>    defaultMain</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>        [   bench <span class="st">&quot;overhead&quot;</span> <span class="op">$</span> whnfIO (<span class="fu">pure</span> <span class="dv">32</span><span class="ot"> ::</span> <span class="dt">IO</span> <span class="dt">Int</span>)</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>        ,   bench <span class="st">&quot;atomicIncrement&quot;</span> <span class="op">$</span> whnfIO (atomicIncrementByteArray ba)</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>        ]</span></code></pre></div>
+<p>And the results:</p>
+<pre><code>benchmarking overhead
+mean                 3.836 ns   (3.766 ns .. 3.912 ns)
+
+benchmarking atomicIncrement
+mean                 8.593 ns   (8.421 ns .. 8.800 ns)</code></pre>
+<p>Not bad. This is equivalent to ~11 cycles anf a decent chunk faster than doing the lookups.
+It’s also a good deal faster than I expected!</p>
+<p>But besides of a lack of multithreading it also doesn’t account for unconditionally allocating a new <code>Var</code>.
+Lets construct one more benchmark to measure them all.</p>
+<h2 id="one-benchmark-to-rule-them-all">One Benchmark to rule them all:</h2>
+<p>I’ll just lead with the code. You don’t have to read it in depth we will discuss below.</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE MagicHash #-}</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE UnboxedTuples #-}</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Criterion.Main</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Exts</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.IO</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Types.Var</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Builtin.Types</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Types.Id</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Types.Unique</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Data.FastString</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Types.Var.Env</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Types.Var.Set</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">System.Random</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Control.Monad</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">GHC.Word</span></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Control.DeepSeq</span></span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">BA</span> <span class="ot">=</span> <span class="dt">BA</span> (<span class="dt">MutableByteArray</span><span class="op">#</span> <span class="dt">RealWorld</span>)</span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a><span class="ot">atomicIncrementByteArray ::</span> <span class="dt">BA</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Int</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>atomicIncrementByteArray (<span class="dt">BA</span> ba) <span class="ot">=</span> <span class="dt">IO</span> <span class="op">$</span> \s <span class="ot">-&gt;</span></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">case</span> fetchAddIntArray<span class="op">#</span> ba <span class="dv">0</span><span class="op">#</span> <span class="dv">1</span><span class="op">#</span> s <span class="kw">of</span></span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>        (<span class="op">#</span> s2, i <span class="op">#</span>) <span class="ot">-&gt;</span> (<span class="op">#</span> s2, <span class="dt">I</span><span class="op">#</span> i <span class="op">#</span>)</span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a><span class="ot">myUniqAway ::</span> <span class="dt">BA</span> <span class="ot">-&gt;</span> <span class="dt">Var</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> <span class="dt">Var</span></span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>myUniqAway ba var <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a>    (mkUniqueGrimily <span class="op">.</span> <span class="fu">fromIntegral</span> <span class="op">&lt;$&gt;</span> atomicIncrementByteArray ba)</span>
+<span id="cb10-29"><a href="#cb10-29" aria-hidden="true" tabindex="-1"></a>        <span class="op">&gt;&gt;=</span> (<span class="fu">pure</span> <span class="op">.</span> setVarUnique var)</span>
+<span id="cb10-30"><a href="#cb10-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-31"><a href="#cb10-31" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# NOINLINE mkVar #-}</span></span>
+<span id="cb10-32"><a href="#cb10-32" aria-hidden="true" tabindex="-1"></a>mkVar <span class="ot">=</span> randomIO <span class="op">&gt;&gt;=</span> \x <span class="ot">-&gt;</span> <span class="fu">pure</span> <span class="op">$</span> mkSysLocal (fsLit <span class="st">&quot;ds&quot;</span>) (mkUniqueGrimily x) intTy intTy</span>
+<span id="cb10-33"><a href="#cb10-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-34"><a href="#cb10-34" aria-hidden="true" tabindex="-1"></a><span class="ot">main ::</span> <span class="dt">IO</span> ()</span>
+<span id="cb10-35"><a href="#cb10-35" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb10-36"><a href="#cb10-36" aria-hidden="true" tabindex="-1"></a>    ba <span class="ot">&lt;-</span> <span class="dt">IO</span> (\s <span class="ot">-&gt;</span> <span class="kw">case</span> newPinnedByteArray<span class="op">#</span> <span class="dv">128</span><span class="op">#</span> s <span class="kw">of</span> (<span class="op">#</span> s2, ba <span class="op">#</span>) <span class="ot">-&gt;</span> (<span class="op">#</span> s2, <span class="dt">BA</span> ba <span class="op">#</span>))</span>
+<span id="cb10-37"><a href="#cb10-37" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> mk_sized_r_scope n <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb10-38"><a href="#cb10-38" aria-hidden="true" tabindex="-1"></a>            in_scope_uniques <span class="ot">&lt;-</span> replicateM n (<span class="fu">fromIntegral</span> <span class="op">&lt;$&gt;</span> (<span class="ot">randomIO::</span> <span class="dt">IO</span> <span class="dt">Word</span>))<span class="ot"> ::</span> <span class="dt">IO</span> [<span class="dt">Word64</span>]</span>
+<span id="cb10-39"><a href="#cb10-39" aria-hidden="true" tabindex="-1"></a>            <span class="fu">return</span> <span class="op">$</span> mkInScopeSetList <span class="op">$</span></span>
+<span id="cb10-40"><a href="#cb10-40" aria-hidden="true" tabindex="-1"></a>                <span class="fu">map</span></span>
+<span id="cb10-41"><a href="#cb10-41" aria-hidden="true" tabindex="-1"></a>                    (\x <span class="ot">-&gt;</span> mkSysLocal (fsLit <span class="st">&quot;ds&quot;</span>) (mkUniqueGrimily x) intTy intTy)</span>
+<span id="cb10-42"><a href="#cb10-42" aria-hidden="true" tabindex="-1"></a>                    in_scope_uniques</span>
+<span id="cb10-43"><a href="#cb10-43" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> mk_seq_scope n <span class="ot">=</span> mkInScopeSetList <span class="op">$</span></span>
+<span id="cb10-44"><a href="#cb10-44" aria-hidden="true" tabindex="-1"></a>                <span class="fu">map</span></span>
+<span id="cb10-45"><a href="#cb10-45" aria-hidden="true" tabindex="-1"></a>                    (\x <span class="ot">-&gt;</span> mkSysLocal (fsLit <span class="st">&quot;ds&quot;</span>) (mkUniqueGrimily x) intTy intTy)</span>
+<span id="cb10-46"><a href="#cb10-46" aria-hidden="true" tabindex="-1"></a>                    [<span class="dv">0</span><span class="op">..</span>n<span class="op">-</span><span class="dv">1</span>]</span>
+<span id="cb10-47"><a href="#cb10-47" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-48"><a href="#cb10-48" aria-hidden="true" tabindex="-1"></a>    r_scope_64 <span class="ot">&lt;-</span> mk_sized_r_scope <span class="dv">64</span></span>
+<span id="cb10-49"><a href="#cb10-49" aria-hidden="true" tabindex="-1"></a>    r_scope_256 <span class="ot">&lt;-</span> mk_sized_r_scope <span class="dv">256</span></span>
+<span id="cb10-50"><a href="#cb10-50" aria-hidden="true" tabindex="-1"></a>    r_scope_512 <span class="ot">&lt;-</span> mk_sized_r_scope <span class="dv">512</span></span>
+<span id="cb10-51"><a href="#cb10-51" aria-hidden="true" tabindex="-1"></a>    r_scope_1024 <span class="ot">&lt;-</span> mk_sized_r_scope <span class="dv">1024</span></span>
+<span id="cb10-52"><a href="#cb10-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-53"><a href="#cb10-53" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> s_scope_256 <span class="ot">=</span> mk_seq_scope <span class="dv">256</span></span>
+<span id="cb10-54"><a href="#cb10-54" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> s_scope_512 <span class="ot">=</span> mk_seq_scope <span class="dv">512</span></span>
+<span id="cb10-55"><a href="#cb10-55" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> s_scope_1024 <span class="ot">=</span> mk_seq_scope <span class="dv">1024</span></span>
+<span id="cb10-56"><a href="#cb10-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-57"><a href="#cb10-57" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> seq_in_scope (<span class="dt">InScope</span> vs) <span class="ot">=</span> seqVarSet vs</span>
+<span id="cb10-58"><a href="#cb10-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-59"><a href="#cb10-59" aria-hidden="true" tabindex="-1"></a>    <span class="fu">pure</span> <span class="op">$!</span> rnf <span class="op">$</span> <span class="fu">map</span> seq_in_scope [r_scope_64, r_scope_256, r_scope_512, r_scope_1024]</span>
+<span id="cb10-60"><a href="#cb10-60" aria-hidden="true" tabindex="-1"></a>    <span class="fu">pure</span> <span class="op">$!</span> rnf <span class="op">$</span> <span class="fu">map</span> seq_in_scope [s_scope_256, s_scope_512, s_scope_1024]</span>
+<span id="cb10-61"><a href="#cb10-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-62"><a href="#cb10-62" aria-hidden="true" tabindex="-1"></a>    defaultMain</span>
+<span id="cb10-63"><a href="#cb10-63" aria-hidden="true" tabindex="-1"></a>        [   bench <span class="st">&quot;overhead&quot;</span> <span class="op">$</span> whnfIO (mkVar)</span>
+<span id="cb10-64"><a href="#cb10-64" aria-hidden="true" tabindex="-1"></a>        ,   bench <span class="st">&quot;atomicIncrement&quot;</span> <span class="op">$</span> whnfIO (atomicIncrementByteArray ba)</span>
+<span id="cb10-65"><a href="#cb10-65" aria-hidden="true" tabindex="-1"></a>        ,   bench <span class="st">&quot;myUniqAway&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> myUniqAway ba)</span>
+<span id="cb10-66"><a href="#cb10-66" aria-hidden="true" tabindex="-1"></a>        ,   bgroup <span class="st">&quot;uniqAway_random_scope&quot;</span></span>
+<span id="cb10-67"><a href="#cb10-67" aria-hidden="true" tabindex="-1"></a>            [</span>
+<span id="cb10-68"><a href="#cb10-68" aria-hidden="true" tabindex="-1"></a>                bench <span class="st">&quot;64&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway r_scope_64)</span>
+<span id="cb10-69"><a href="#cb10-69" aria-hidden="true" tabindex="-1"></a>            ,   bench <span class="st">&quot;256&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway r_scope_256)</span>
+<span id="cb10-70"><a href="#cb10-70" aria-hidden="true" tabindex="-1"></a>            ,   bench <span class="st">&quot;512&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway r_scope_512)</span>
+<span id="cb10-71"><a href="#cb10-71" aria-hidden="true" tabindex="-1"></a>            ,   bench <span class="st">&quot;1024&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway r_scope_1024)</span>
+<span id="cb10-72"><a href="#cb10-72" aria-hidden="true" tabindex="-1"></a>            ]</span>
+<span id="cb10-73"><a href="#cb10-73" aria-hidden="true" tabindex="-1"></a>        ,   bgroup <span class="st">&quot;uniqAway_seq_scope&quot;</span></span>
+<span id="cb10-74"><a href="#cb10-74" aria-hidden="true" tabindex="-1"></a>            [</span>
+<span id="cb10-75"><a href="#cb10-75" aria-hidden="true" tabindex="-1"></a>                bench <span class="st">&quot;256&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway s_scope_256)</span>
+<span id="cb10-76"><a href="#cb10-76" aria-hidden="true" tabindex="-1"></a>            ,   bench <span class="st">&quot;512&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway s_scope_512)</span>
+<span id="cb10-77"><a href="#cb10-77" aria-hidden="true" tabindex="-1"></a>            ,   bench <span class="st">&quot;1024&quot;</span> <span class="op">$</span> whnfIO (mkVar <span class="op">&gt;&gt;=</span> <span class="fu">pure</span> <span class="op">.</span> uniqAway s_scope_1024)</span>
+<span id="cb10-78"><a href="#cb10-78" aria-hidden="true" tabindex="-1"></a>            ]</span>
+<span id="cb10-79"><a href="#cb10-79" aria-hidden="true" tabindex="-1"></a>        ]</span></code></pre></div>
+<p>First off we now allocate a <code>Var</code> to clone during each benchmark. This comes with
+significant overhead as it involves among other things generating a random unique.</p>
+<p>We now have a implementation for <code>uniqAway</code> that unconditionally creates a new <code>Var</code>
+using an atomic operation. It has a constant cost so there is not much point in
+constructing more than one benchmark for it.</p>
+<p>For the current implementation of <code>uniqAway</code> we construct <code>InScopeSet</code>s in two ways.
+One containing a sequential list of variables with sequential Uniques.</p>
+<p>The other variant constructs a <code>InScopeSet</code> from randomly sampled Uniques. For both
+of these we vary the sizes to get an idea about how performance scales with the size
+of the in scope set.</p>
+<p>I run this particular benchmark on my desktop so the numbers are a bit different but
+we get the same trends. First we can see the allocation of the <code>Var</code> doesn’t seem to
+add much compared to the raw cost of the atomic:</p>
+<pre><code>benchmarking overhead
+mean                 13.72 ns   (13.64 ns .. 13.85 ns)
+
+benchmarking atomicIncrement
+mean                 5.327 ns   (5.300 ns .. 5.362 ns)
+
+benchmarking myUniqAway
+mean                 19.80 ns   (19.69 ns .. 19.94 ns)</code></pre>
+<p>We can see that at least in this micro benchmark the cost of allocation is barely
+relevant compared to the atomic operation. The whole operation comes in at 20ns
+independent of the size of the in scope set.</p>
+<p>Not however this doesn’t measure any potential degradations resulting from compilation
+happening on multiple cores concurrently. I’m not too up to date with my bus locking
+knowledge but I assume using the same memory address on multiple cores would come
+with some cost even without contention.</p>
+<p>But let’s forget about concurrency and look at the performance of <code>uniqAway</code> as it is today.</p>
+<pre><code>benchmarking uniqAway_random_scope/64
+mean                 41.75 ns   (41.52 ns .. 42.12 ns)
+
+benchmarking uniqAway_random_scope/256
+mean                 51.02 ns   (50.70 ns .. 51.48 ns)
+
+benchmarking uniqAway_random_scope/512
+mean                 55.13 ns   (54.84 ns .. 55.56 ns)
+
+benchmarking uniqAway_random_scope/1024
+mean                 59.22 ns   (59.00 ns .. 59.53 ns)</code></pre>
+<p>We see an additional ~20ns per invocation for in scope sets as small as 64 elements.
+With the runtime increasing as the in scope set grows. We can nicely see that doubling
+the size of the in scope set only adds ~4ns of overhead. The beauty of <code>O(log(n))</code> in
+action! It’s also quite a bit slower than using atomics.</p>
+<p>But wait there is more:</p>
+<pre><code>benchmarking uniqAway_seq_scope/256
+mean                 19.01 ns   (18.93 ns .. 19.12 ns)
+
+benchmarking uniqAway_seq_scope/512
+mean                 18.88 ns   (18.79 ns .. 19.00 ns)
+
+benchmarking uniqAway_seq_scope/1024
+mean                 18.94 ns   (18.84 ns .. 19.16 ns)</code></pre>
+<p>What is going on here. The runtime here is essentially constant independent of the
+size. To explain this we have to dive into the implementation of <code>IntMap</code>:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">IntMap</span> a <span class="ot">=</span> <span class="dt">Bin</span> <span class="ot">{-# UNPACK #-}</span> <span class="op">!</span><span class="dt">Prefix</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>                    <span class="op">!</span>(<span class="dt">IntMap</span> a)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>                    <span class="op">!</span>(<span class="dt">IntMap</span> a)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>              <span class="op">|</span> <span class="dt">Tip</span> <span class="ot">{-# UNPACK #-}</span> <span class="op">!</span><span class="dt">Key</span> a</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>              <span class="op">|</span> <span class="dt">Nil</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="op">...</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="co">-- * The Prefix of a Bin indicates the common high-order bits that all keys in</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="co">--   the Bin share.</span></span></code></pre></div>
+<p>The magic here is the <code>Prefix</code> value. A random <code>Int</code> has about 0% chance to sit
+inside a small contiguous number of values. Which means we can immediately tell
+a variable is <em>not</em> in scope. This is basically the best case for <code>uniqAway</code> and it
+performs similarly to the variant based on atomics.</p>
+<h1 id="conclusions">Conclusions</h1>
+<p>We have seen that a <code>uniqAway</code> implementation based on atomics performs as well as the
+best case of the current implementation. Does this mean we should replace it?</p>
+<p>Probably not. While it’s likely to give a tiny performance benefit in the single
+threaded case it’s unclear how much overhead would be incurred for multi threaded
+compilation. The simple atomic approach might be
+slower in these cases. But it’s quite difficult to reasonably benchmark this.</p>
+<p>There is also the option to simple do away with atomics by engineering GHC such that
+uniques spawned by <code>uniqAway</code> are only unique to a specific thread. This would
+reduce the overhead even further, at the cost of some complexity. So that might be
+a better way to go about things if we ever decide it’s worth the spend actual effort
+on this.</p>
+<p>Last but not least: Does it even matter?</p>
+<p>By instrumenting GHC we can check! When compiling <code>nofib/spectral/simple</code> from the nofib
+benchmark suite GHC spends ~3s compiling. Invoking <code>uniqAway</code> ~500k times in that time.</p>
+<p>In the best case, based on these numbers, I expect us shave off at most ~30ns for each call.
+Which for 500k calls amounts to 0.015s.</p>
+<p>A relative improvement of 0.005%. And it might be worse in practice!
+Given these numbers I would argue this isn’t the best use of any ones time.</p>
+<p>But it was fun thinking about.</p>
+
+        </div>
+        <div id="footer">
+        </div>
+        <div style="display: none">If you found this and we meet tell me. I will buy you a drink.</div>
+    </body>
+</html>
