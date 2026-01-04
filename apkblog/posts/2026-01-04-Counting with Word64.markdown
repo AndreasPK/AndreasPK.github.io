@@ -4,7 +4,17 @@ author: Andreas Klebinger
 categories: Trivia
 ---
 
-Thesis: If you increment one at a time, on hardware, a Word64 is basically an infinity.
+Every once in a while I've witnessed someone worrying about a counter overflowing.
+While those bugs do certainly happen. With things that are counted one at a time
+on hardware this is basically impossible.
+
+# Thesis: If you increment one at a time, on hardware, a Word64 is basically infinite.
+
+From an engineering point of view if the hardware is guaranteed to die or your program
+to terminate before you exceed 2^64 you can treat a 64bit Words as infinite. Which is
+terribly convenient.
+
+It's hard to grasp how much leeway that actually gives us. So here are some examples.
 
 # How long can you count?
 
@@ -39,22 +49,9 @@ time. So don't worry about it.
 # Word64 is *not* infinite
 
 Things escalate quickly if you aggregate counters. While we can count cycles
-for longer than almost all hardware will last. If you count instructions on a Server
-you might run into roll over territory. E.g. 192 cores * 2.5GHz * 3 (IPC)
+for longer than almost all hardware will last. Counting instructions on a Server
+might run into roll over territory. E.g. 192 cores * 2.5GHz * 3 (IPC)
 would give you a lower bound of 148 days before roll over.
 
 But if you are counting things one at a time, on hardware, without adding up counters?
 Don't worry about it.
-
-
-
-
-
-
-
-
-
-
-
-
-
