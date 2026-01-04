@@ -1,14 +1,23 @@
 --------------------------------------------------------------------------------
 {-# LANGUAGE OverloadedStrings #-}
 import           Data.Monoid (mappend)
-import           Hakyll
+import           Hakyll as H
+import           Hakyll.Core.Configuration as H
 import           Text.Pandoc.Options
 import           Data.Default
 
+import qualified GHC.IO.Encoding as E
 
 --------------------------------------------------------------------------------
 main :: IO ()
-main = hakyll $ do
+main = do
+    E.setLocaleEncoding E.utf8
+    runHakyll
+
+hakyllConfig :: H.Configuration
+hakyllConfig = H.defaultConfiguration
+
+runHakyll = hakyllWith hakyllConfig $ do
     match "images/*" $ do
         route   idRoute
         compile copyFileCompiler
